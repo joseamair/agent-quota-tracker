@@ -1,0 +1,1191 @@
+#!/usr/bin/env python3
+"""
+agents.py - Standalone 5-Hour Rate Limit Window & Quota Tracker
+Tracks:
+  - 3 Claude accounts via CCS (work, personal, work2)
+  - OpenAI Codex (via JSON-RPC app-server query)
+  - Google Antigravity / AGY (via CLI history & local session state)
+
+Usage:
+  python agents.py --status
+  python agents.py --poke
+  python agents.py --dashboard
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import threading
+import time
+import webbrowser
+from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any, Optional
+
+# Ensure UTF-8 output on Windows console
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Helpers & State
+# ---------------------------------------------------------------------------
+
+def get_state_file() -> Path:
+    state_dir = Path(os.path.expanduser("~")) / ".agents_dashboard"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    return state_dir / "state.json"
+
+
+def load_state() -> dict[str, Any]:
+    f = get_state_file()
+    if f.exists():
+        try:
+            return json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def update_agent_state(agent_id: str, updates: dict[str, Any]) -> None:
+    st = load_state()
+    agent_st = st.get(agent_id, {})
+    agent_st.update(updates)
+    st[agent_id] = agent_st
+    try:
+        get_state_file().write_text(json.dumps(st, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def format_duration(seconds: int) -> str:
+    if seconds <= 0:
+        return "0s"
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    parts = []
+    if h > 0:
+        parts.append(f"{h}h")
+    if m > 0:
+        parts.append(f"{m}m")
+    if s > 0 or not parts:
+        parts.append(f"{s}s")
+    return " ".join(parts)
+
+
+def parse_iso(dt_str: Optional[str]) -> Optional[datetime]:
+    if not dt_str:
+        return None
+    try:
+        cleaned = dt_str.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(cleaned)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        return None
+
+
+def calculate_weekly_reset(resets_at_str: Optional[str]) -> tuple[Optional[float], str]:
+    """Returns (remaining_hours, formatted_string_with_hrs_and_date)."""
+    if not resets_at_str:
+        return None, "-"
+    dt = parse_iso(resets_at_str)
+    if not dt:
+        return None, "-"
+    now = datetime.now(timezone.utc)
+    secs = (dt - now).total_seconds()
+    if secs <= 0:
+        return 0.0, "Reset due"
+    hours = round(secs / 3600.0, 1)
+    local_dt = dt.astimezone()
+    date_str = local_dt.strftime("%a %b %d, %H:%M")
+    return hours, f"in {hours}h ({date_str})"
+
+
+# ---------------------------------------------------------------------------
+# Data Models
+# ---------------------------------------------------------------------------
+
+class AgentInfo:
+    def __init__(
+        self,
+        id: str,
+        name: str,
+        provider: str,
+        is_active: bool,
+        used_percent: float,
+        resets_at: Optional[str] = None,
+        time_remaining_seconds: int = 0,
+        weekly_used_percent: Optional[float] = None,
+        weekly_resets_at: Optional[str] = None,
+        weekly_remaining_hours: Optional[float] = None,
+        weekly_reset_str: str = "-",
+        status_label: str = "",
+        error: Optional[str] = None,
+        category: str = "personal",
+    ):
+        self.id = id
+        self.name = name
+        self.provider = provider
+        self.is_active = is_active
+        self.used_percent = round(used_percent, 1)
+        self.resets_at = resets_at
+        self.time_remaining_seconds = time_remaining_seconds
+        self.time_remaining_str = format_duration(time_remaining_seconds) if is_active else "Inactive"
+        self.weekly_used_percent = round(weekly_used_percent, 1) if weekly_used_percent is not None else None
+        self.weekly_resets_at = weekly_resets_at
+        self.weekly_remaining_hours = weekly_remaining_hours
+        self.weekly_reset_str = weekly_reset_str
+        self.status_label = status_label
+        self.error = error
+        self.category = category
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "provider": self.provider,
+            "category": self.category,
+            "is_active": self.is_active,
+            "used_percent": self.used_percent,
+            "resets_at": self.resets_at,
+            "time_remaining_seconds": self.time_remaining_seconds,
+            "time_remaining_str": self.time_remaining_str,
+            "weekly_used_percent": self.weekly_used_percent,
+            "weekly_resets_at": self.weekly_resets_at,
+            "weekly_remaining_hours": self.weekly_remaining_hours,
+            "weekly_reset_str": self.weekly_reset_str,
+            "status_label": self.status_label,
+            "error": self.error,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Trackers: Claude (CCS)
+# ---------------------------------------------------------------------------
+
+import urllib.request
+
+def fetch_live_claude_usage(profile: str) -> Optional[dict[str, Any]]:
+    """Query Anthropic API directly with profile credentials for instantaneous live data."""
+    try:
+        home = Path(os.path.expanduser("~"))
+        creds_path = home / ".ccs" / "instances" / profile / ".credentials.json"
+        if not creds_path.exists():
+            return None
+        creds = json.loads(creds_path.read_text(encoding="utf-8"))
+        token = creds.get("claudeAiOauth", {}).get("accessToken")
+        if not token:
+            return None
+
+        req = urllib.request.Request(
+            "https://api.anthropic.com/api/oauth/usage",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "User-Agent": "claude-code/2.1.281",
+                "Accept": "application/json",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=3.5) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode("utf-8"))
+                # Write back to disk cache so other tools and offline runs have updated data
+                try:
+                    claude_json_path = home / ".ccs" / "instances" / profile / ".claude.json"
+                    if claude_json_path.exists():
+                        cj = json.loads(claude_json_path.read_text(encoding="utf-8"))
+                        cj["cachedUsageUtilization"] = {
+                            "fetchedAtMs": int(time.time() * 1000),
+                            "accountUuid": creds.get("claudeAiOauth", {}).get("accountUuid"),
+                            "utilization": data,
+                        }
+                        claude_json_path.write_text(json.dumps(cj, indent=2), encoding="utf-8")
+                except Exception:
+                    pass
+                return data
+    except Exception:
+        pass
+    return None
+
+
+def get_claude_status(profile: str, display_name: str, category: str = "personal") -> AgentInfo:
+    home = Path(os.path.expanduser("~"))
+    claude_json = home / ".ccs" / "instances" / profile / ".claude.json"
+
+    # 1. Try live API fetch first for real-time instantaneous status
+    live_data = fetch_live_claude_usage(profile)
+
+    five_hour = {}
+    seven_day = {}
+
+    if live_data:
+        five_hour = live_data.get("five_hour") or {}
+        seven_day = live_data.get("seven_day") or {}
+    elif claude_json.exists():
+        try:
+            data = json.loads(claude_json.read_text(encoding="utf-8"))
+            cached_u = data.get("cachedUsageUtilization", {}).get("utilization", {})
+            five_hour = cached_u.get("five_hour") or {}
+            seven_day = cached_u.get("seven_day") or {}
+        except Exception as e:
+            return AgentInfo(
+                id=f"claude-{profile}",
+                name=display_name,
+                provider="Claude",
+                is_active=False,
+                used_percent=0.0,
+                status_label="Error",
+                error=str(e),
+                category=category,
+            )
+    else:
+        return AgentInfo(
+            id=f"claude-{profile}",
+            name=display_name,
+            provider="Claude",
+            is_active=False,
+            used_percent=0.0,
+            status_label="Profile not found",
+            error=f"Missing {claude_json}",
+            category=category,
+        )
+
+    used_pct = float(five_hour.get("utilization") or 0.0)
+    resets_at_str = five_hour.get("resets_at")
+    resets_dt = parse_iso(resets_at_str)
+
+    now = datetime.now(timezone.utc)
+    is_active = False
+    remaining_secs = 0
+
+    if resets_dt and resets_dt > now:
+        is_active = True
+        remaining_secs = int((resets_dt - now).total_seconds())
+        label = "Active"
+    else:
+        is_active = False
+        used_pct = 0.0
+        label = "Inactive (Ready to Poke)"
+
+    weekly_pct = float(seven_day.get("utilization")) if seven_day.get("utilization") is not None else None
+    weekly_resets_at_str = seven_day.get("resets_at")
+    weekly_hours, weekly_reset_str = calculate_weekly_reset(weekly_resets_at_str)
+
+    return AgentInfo(
+        id=f"claude-{profile}",
+        name=display_name,
+        provider="Claude",
+        is_active=is_active,
+        used_percent=used_pct,
+        resets_at=resets_at_str,
+        time_remaining_seconds=remaining_secs,
+        weekly_used_percent=weekly_pct,
+        weekly_resets_at=weekly_resets_at_str,
+        weekly_remaining_hours=weekly_hours,
+        weekly_reset_str=weekly_reset_str,
+        status_label=label,
+        category=category,
+    )
+
+
+def extract_reply_snippet(output: str, max_chars: int = 120) -> str:
+    """Extract a clean, readable one-line snippet from the agent's CLI output."""
+    if not output:
+        return "(no reply text captured)"
+    output = output.replace("\u2018", "'").replace("\u2019", "'").replace("\u201c", '"').replace("\u201d", '"')
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    cleaned_lines = []
+    for line in lines:
+        lower = line.lower()
+        if (
+            line.startswith("Warning:")
+            or line.startswith("Last progress:")
+            or line.startswith("Thinking Process:")
+            or line.startswith("Reading additional input")
+            or line.startswith("OpenAI Codex")
+            or line.startswith("--------")
+            or lower.startswith("workdir:")
+            or lower.startswith("model:")
+            or lower.startswith("provider:")
+            or lower.startswith("approval:")
+            or lower.startswith("sandbox:")
+            or lower.startswith("reasoning effort:")
+            or lower.startswith("reasoning summaries:")
+            or lower.startswith("session id:")
+            or lower.startswith("tokens used")
+            or lower.startswith("user ")
+            or lower.startswith("codex ")
+        ):
+            continue
+        cleaned_lines.append(line)
+
+    if not cleaned_lines:
+        return lines[0][:max_chars] if lines else "(no text response)"
+
+    first = cleaned_lines[0]
+    if len(first) > max_chars:
+        return first[: max_chars - 3] + "..."
+    return first
+
+
+def poke_claude(profile: str, prompt: str = "Hello, how are you doing?") -> dict[str, Any]:
+    ccs_bin = shutil.which("ccs") or shutil.which("ccs.cmd")
+    if not ccs_bin:
+        return {"status": "error", "message": "CCS CLI (ccs) not found", "reply": None, "verified_active": False}
+
+    try:
+        proc = subprocess.run(
+            [ccs_bin, profile, "-p", prompt],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=45,
+        )
+        output = (proc.stdout or "").strip() or (proc.stderr or "").strip()
+        reply = extract_reply_snippet(output)
+        update_agent_state(f"claude-{profile}", {"last_poked_at": datetime.now(timezone.utc).isoformat()})
+
+        # Verify locally: fetch live usage and check if active (retry up to 3 times)
+        verify_status = None
+        for delay in (1.0, 2.0, 2.5):
+            time.sleep(delay)
+            verify_status = get_claude_status(profile, f"Claude ({profile})")
+            if verify_status.is_active:
+                break
+
+        if verify_status.is_active:
+            return {
+                "status": "poked",
+                "message": f"Verified ACTIVE ({verify_status.time_remaining_str} remaining, {verify_status.used_percent}% used)",
+                "reply": reply,
+                "verified_active": True,
+                "time_remaining_str": verify_status.time_remaining_str,
+                "used_percent": verify_status.used_percent,
+            }
+        else:
+            return {
+                "status": "unverified",
+                "message": "Model replied, but 5h window did not register as active",
+                "reply": reply,
+                "verified_active": False,
+                "time_remaining_str": "Inactive",
+                "used_percent": 0.0,
+            }
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "message": "Timed out after 45s waiting for Claude reply", "reply": None, "verified_active": False}
+    except Exception as e:
+        return {"status": "error", "message": str(e), "reply": None, "verified_active": False}
+
+
+# ---------------------------------------------------------------------------
+# Trackers: OpenAI Codex
+# ---------------------------------------------------------------------------
+
+def get_codex_status(display_name: str = "OpenAI Codex", category: str = "personal") -> AgentInfo:
+    codex_bin = shutil.which("codex") or shutil.which("codex.cmd")
+    if not codex_bin:
+        return AgentInfo("codex", display_name, "Codex", False, 0.0, status_label="Codex CLI missing", category=category)
+
+    res = None
+    proc = None
+    try:
+        proc = subprocess.Popen(
+            [codex_bin, "app-server", "--stdio"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        # Initialize
+        proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "agents", "version": "1.0"}}}) + "\n")
+        proc.stdin.flush()
+        _ = proc.stdout.readline()
+
+        # Read rate limits
+        proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 2, "method": "account/rateLimits/read", "params": {}}) + "\n")
+        proc.stdin.flush()
+
+        start = time.time()
+        while time.time() - start < 3.0:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            try:
+                msg = json.loads(line)
+                if msg.get("id") == 2 and "result" in msg:
+                    res = msg["result"]
+                    break
+            except Exception:
+                continue
+    except Exception:
+        pass
+    finally:
+        if proc:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+
+    if not res or "rateLimits" not in res:
+        return AgentInfo("codex", display_name, "Codex", False, 0.0, status_label="Could not query Codex limits", category=category)
+
+    primary = res["rateLimits"].get("primary") or {}
+    secondary = res["rateLimits"].get("secondary") or {}
+
+    resets_at_ts = primary.get("resetsAt")
+    used_pct = float(primary.get("usedPercent") or 0.0)
+    now_ts = time.time()
+
+    is_active = False
+    remaining_secs = 0
+    resets_at_str = None
+
+    if resets_at_ts and resets_at_ts > now_ts:
+        is_active = True
+        remaining_secs = int(resets_at_ts - now_ts)
+        resets_at_str = datetime.fromtimestamp(resets_at_ts, tz=timezone.utc).isoformat()
+        label = "Active"
+    else:
+        is_active = False
+        used_pct = 0.0
+        label = "Inactive (Ready to Poke)"
+
+    weekly_pct = float(secondary.get("usedPercent")) if secondary.get("usedPercent") is not None else None
+    weekly_resets_at_ts = secondary.get("resetsAt")
+    if weekly_resets_at_ts:
+        weekly_dt = datetime.fromtimestamp(weekly_resets_at_ts, tz=timezone.utc)
+        weekly_resets_at_str = weekly_dt.isoformat()
+        weekly_hours, weekly_reset_str = calculate_weekly_reset(weekly_resets_at_str)
+    else:
+        weekly_resets_at_str = None
+        weekly_hours = None
+        weekly_reset_str = "-"
+
+    return AgentInfo(
+        "codex",
+        display_name,
+        "Codex",
+        is_active,
+        used_pct,
+        resets_at_str,
+        remaining_secs,
+        weekly_pct,
+        weekly_resets_at_str,
+        weekly_hours,
+        weekly_reset_str,
+        label,
+        category=category,
+    )
+
+
+def poke_codex(prompt: str = "Hello, how are you doing?") -> dict[str, Any]:
+    codex_bin = shutil.which("codex") or shutil.which("codex.cmd")
+    if not codex_bin:
+        return {"status": "error", "message": "Codex CLI (codex) not found", "reply": None, "verified_active": False}
+
+    try:
+        proc = subprocess.run(
+            [codex_bin, "exec", prompt, "--ephemeral", "--skip-git-repo-check", "--color", "never"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=45,
+        )
+        output = (proc.stdout or "").strip() or (proc.stderr or "").strip()
+        reply = extract_reply_snippet(output)
+        update_agent_state("codex", {"last_poked_at": datetime.now(timezone.utc).isoformat()})
+
+        # Verify locally
+        time.sleep(1.0)
+        verify_status = get_codex_status()
+        if not verify_status.is_active:
+            time.sleep(1.5)
+            verify_status = get_codex_status()
+
+        if verify_status.is_active:
+            return {
+                "status": "poked",
+                "message": f"Verified ACTIVE ({verify_status.time_remaining_str} remaining, {verify_status.used_percent}% used)",
+                "reply": reply,
+                "verified_active": True,
+                "time_remaining_str": verify_status.time_remaining_str,
+                "used_percent": verify_status.used_percent,
+            }
+        else:
+            return {
+                "status": "unverified",
+                "message": "Model replied, but 5h window did not register as active",
+                "reply": reply,
+                "verified_active": False,
+                "time_remaining_str": "Inactive",
+                "used_percent": 0.0,
+            }
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "message": "Timed out after 45s waiting for Codex reply", "reply": None, "verified_active": False}
+    except Exception as e:
+        return {"status": "error", "message": str(e), "reply": None, "verified_active": False}
+
+
+# ---------------------------------------------------------------------------
+# Trackers: Google Antigravity (AGY)
+# ---------------------------------------------------------------------------
+
+_agy_cached_quota: Optional[dict[str, Any]] = None
+_agy_cached_time: float = 0.0
+
+
+def fetch_agy_live_quota(force: bool = False) -> Optional[dict[str, Any]]:
+    global _agy_cached_quota, _agy_cached_time
+    now = time.time()
+    if not force and _agy_cached_quota and (now - _agy_cached_time < 10.0):
+        return _agy_cached_quota
+
+    agy_bin = shutil.which("agy") or shutil.which("agy.exe")
+    if not agy_bin:
+        return None
+
+    try:
+        res = subprocess.run(
+            [agy_bin, "-p", "/usage", "--output-format", "json"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+        )
+        if res.returncode == 0 and res.stdout:
+            data = json.loads(res.stdout)
+            cmd_data = data.get("command", {}).get("data", {})
+            if cmd_data and "groups" in cmd_data:
+                _agy_cached_quota = cmd_data
+                _agy_cached_time = now
+                return cmd_data
+    except Exception:
+        pass
+    return None
+
+
+def get_agy_status(display_name: str = "Google Antigravity (AGY)", category: str = "personal") -> AgentInfo:
+    live_quota = fetch_agy_live_quota()
+    if live_quota and "groups" in live_quota:
+        groups = live_quota.get("groups", [])
+        gemini_group = next((g for g in groups if "gemini" in g.get("name", "").lower()), None)
+        if not gemini_group and groups:
+            gemini_group = groups[0]
+
+        b_5h = None
+        b_wk = None
+        if gemini_group:
+            for b in gemini_group.get("buckets", []):
+                win = b.get("window", "").lower()
+                bid = b.get("id", "").lower()
+                if win == "5h" or "5h" in bid:
+                    b_5h = b
+                elif win == "weekly" or "weekly" in bid:
+                    b_wk = b
+
+        now = datetime.now(timezone.utc)
+        is_active = False
+        remaining_secs = 0
+        resets_at_str = None
+        used_pct = 0.0
+        label = "Inactive (Ready to Poke)"
+
+        if b_5h:
+            rem_frac = float(b_5h.get("remaining_fraction", 1.0))
+            used_pct = round(max(0.0, (1.0 - rem_frac) * 100), 1)
+            r_time = b_5h.get("reset_time")
+            r_dt = parse_iso(r_time)
+            if r_dt and r_dt > now:
+                is_active = True
+                remaining_secs = max(0, int((r_dt - now).total_seconds()))
+                resets_at_str = r_dt.isoformat()
+                label = "Active"
+            else:
+                is_active = False
+                used_pct = 0.0
+                remaining_secs = 0
+                label = "Inactive (Ready to Poke)"
+
+        weekly_used_pct = None
+        weekly_resets_at = None
+        weekly_hours = None
+        weekly_reset_str = "-"
+
+        if b_wk:
+            wk_rem_frac = float(b_wk.get("remaining_fraction", 1.0))
+            weekly_used_pct = round(max(0.0, (1.0 - wk_rem_frac) * 100), 1)
+            weekly_resets_at = b_wk.get("reset_time")
+            weekly_hours, weekly_reset_str = calculate_weekly_reset(weekly_resets_at)
+
+        return AgentInfo(
+            "agy",
+            display_name,
+            "AGY",
+            is_active,
+            used_pct,
+            resets_at_str,
+            remaining_secs,
+            weekly_used_pct,
+            weekly_resets_at,
+            weekly_hours,
+            weekly_reset_str,
+            label,
+            category=category,
+        )
+
+    # Fallback to history.jsonl
+    home = Path(os.path.expanduser("~"))
+    hist_file = home / ".gemini" / "antigravity-cli" / "history.jsonl"
+    five_hours = 5 * 3600
+    now_ts = time.time()
+    latest_ts = None
+    count_in_5h = 0
+
+    if hist_file.exists():
+        try:
+            lines = hist_file.read_text(encoding="utf-8", errors="ignore").strip().splitlines()
+            for line in reversed(lines):
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                    ts_ms = entry.get("timestamp")
+                    if ts_ms:
+                        ts_sec = float(ts_ms) / 1000.0
+                        if latest_ts is None:
+                            latest_ts = ts_sec
+                        if now_ts - ts_sec < five_hours:
+                            count_in_5h += 1
+                        else:
+                            break
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+    # Check local poke state
+    st = load_state().get("agy", {})
+    if st.get("last_poked_at"):
+        try:
+            dt = parse_iso(st["last_poked_at"])
+            if dt and (latest_ts is None or dt.timestamp() > latest_ts):
+                latest_ts = dt.timestamp()
+                if now_ts - latest_ts < five_hours:
+                    count_in_5h = max(count_in_5h, 1)
+        except Exception:
+            pass
+
+    is_active = False
+    remaining_secs = 0
+    resets_at_str = None
+    used_pct = 0.0
+
+    if latest_ts and (now_ts - latest_ts < five_hours):
+        is_active = True
+        remaining_secs = int(five_hours - (now_ts - latest_ts))
+        resets_at_str = datetime.fromtimestamp(latest_ts + five_hours, tz=timezone.utc).isoformat()
+        used_pct = round(((now_ts - latest_ts) / five_hours) * 100, 1)
+        label = f"Active ({count_in_5h} reqs in window)"
+    else:
+        label = "Inactive (Ready to Poke)"
+
+    return AgentInfo("agy", display_name, "AGY", is_active, used_pct, resets_at_str, remaining_secs, None, None, None, "-", label, category=category)
+
+
+def poke_agy(prompt: str = "Hello, how are you doing?") -> dict[str, Any]:
+    global _agy_cached_quota, _agy_cached_time
+    agy_bin = shutil.which("agy") or shutil.which("agy.exe")
+    if not agy_bin:
+        return {"status": "error", "message": "AGY CLI (agy) not found", "reply": None, "verified_active": False}
+
+    try:
+        proc = subprocess.run(
+            [agy_bin, "-p", prompt, "--disable-slash-commands"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=45,
+        )
+        output = (proc.stdout or "").strip() or (proc.stderr or "").strip()
+        reply = extract_reply_snippet(output)
+        update_agent_state("agy", {"last_poked_at": datetime.now(timezone.utc).isoformat()})
+
+        # Invalidate quota cache
+        _agy_cached_quota = None
+        _agy_cached_time = 0.0
+
+        # Verify locally
+        time.sleep(1.0)
+        verify_status = get_agy_status()
+
+        if verify_status.is_active:
+            return {
+                "status": "poked",
+                "message": f"Verified ACTIVE ({verify_status.time_remaining_str} remaining, {verify_status.used_percent}% used)",
+                "reply": reply,
+                "verified_active": True,
+                "time_remaining_str": verify_status.time_remaining_str,
+                "used_percent": verify_status.used_percent,
+            }
+        else:
+            return {
+                "status": "unverified",
+                "message": "Model replied, but could not verify active window",
+                "reply": reply,
+                "verified_active": False,
+                "time_remaining_str": "Inactive",
+                "used_percent": 0.0,
+            }
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "message": "Timed out after 45s waiting for AGY reply", "reply": None, "verified_active": False}
+    except Exception as e:
+        return {"status": "error", "message": str(e), "reply": None, "verified_active": False}
+
+
+# ---------------------------------------------------------------------------
+# Collective Operations
+# ---------------------------------------------------------------------------
+
+DEFAULT_ACCOUNTS: list[dict[str, Any]] = [
+    {
+        "id": "agy",
+        "provider": "agy",
+        "name": "Google Antigravity (AGY)",
+        "category": "personal",
+        "enabled": True,
+    },
+    {
+        "id": "codex",
+        "provider": "codex",
+        "name": "OpenAI Codex",
+        "category": "personal",
+        "enabled": True,
+    },
+    {
+        "id": "personal",
+        "provider": "claude",
+        "profile": "personal",
+        "name": "Claude (Personal)",
+        "category": "personal",
+        "enabled": True,
+    },
+    {
+        "id": "work",
+        "provider": "claude",
+        "profile": "work",
+        "name": "Claude (Work)",
+        "category": "work",
+        "enabled": True,
+    },
+    {
+        "id": "work2",
+        "provider": "claude",
+        "profile": "work2",
+        "name": "Claude (Work2)",
+        "category": "work",
+        "enabled": True,
+    },
+]
+
+
+def load_accounts_config() -> list[dict[str, Any]]:
+    candidates = [
+        Path.cwd() / "agents.config.json",
+        Path(__file__).resolve().parent / "agents.config.json",
+        Path(os.path.expanduser("~")) / ".agents_dashboard" / "config.json",
+    ]
+    for c in candidates:
+        if c.exists() and c.is_file():
+            try:
+                data = json.loads(c.read_text(encoding="utf-8"))
+                accounts = data.get("accounts")
+                if isinstance(accounts, list) and accounts:
+                    return [a for a in accounts if a.get("enabled", True)]
+            except Exception:
+                pass
+    return DEFAULT_ACCOUNTS
+
+
+def fetch_all_statuses() -> list[AgentInfo]:
+    accounts = load_accounts_config()
+    statuses = []
+    for acc in accounts:
+        prov = acc.get("provider", "").lower()
+        aid = acc.get("id", "")
+        name = acc.get("name") or aid
+        cat = acc.get("category", "personal")
+        if prov == "agy":
+            statuses.append(get_agy_status(display_name=name, category=cat))
+        elif prov == "codex":
+            statuses.append(get_codex_status(display_name=name, category=cat))
+        elif prov == "claude":
+            prof = acc.get("profile") or aid
+            statuses.append(get_claude_status(prof, name, category=cat))
+    return statuses
+
+
+def run_poke_command(force: bool = False, agent_id: Optional[str] = None) -> None:
+    mode_str = " (FORCE mode enabled)" if force else ""
+    print(f"\n⚡ [POKE] Checking 5-hour rolling threshold windows{mode_str}...\n")
+    statuses = fetch_all_statuses()
+    if agent_id:
+        target = agent_id.lower()
+        statuses = [s for s in statuses if s.id == target or s.id == f"claude-{target}"]
+        if not statuses:
+            print(f"✖ Unknown agent ID '{agent_id}'. Options: work, personal, work2, codex, agy\n")
+            return
+
+    for s in statuses:
+        if s.is_active and not force:
+            print(f"  ↷ SKIPPED: {s.name:<25} Window already ACTIVE ({s.time_remaining_str} remaining, {s.used_percent}% used).")
+            continue
+
+        action_desc = "Forcing poke" if (s.is_active and force) else "Window is inactive"
+        print(f"  ⏳ POKING:  {s.name:<25} {action_desc}. Sending prompt & waiting for reply...")
+        if s.provider.lower() == "claude" or s.id.startswith("claude-"):
+            profile = s.id.replace("claude-", "")
+            res = poke_claude(profile)
+        elif s.id == "codex":
+            res = poke_codex()
+        elif s.id == "agy":
+            res = poke_agy()
+        else:
+            res = {"status": "error", "message": "Unknown agent", "reply": None, "verified_active": False}
+
+        if res["status"] == "poked":
+            print(f"  ✔ SUCCESS: {s.name:<25} {res['message']}")
+            if res.get("reply"):
+                print(f"             ↳ Reply: \"{res['reply']}\"")
+        elif res["status"] == "unverified":
+            print(f"  ⚠ WARNING: {s.name:<25} {res['message']}")
+            if res.get("reply"):
+                print(f"             ↳ Reply: \"{res['reply']}\"")
+        else:
+            print(f"  ✖ ERROR:   {s.name:<25} {res['message']}")
+
+    print("\nDone!\n")
+
+
+def print_status_table() -> None:
+    statuses = fetch_all_statuses()
+
+    print("\n" + "=" * 128)
+    print("  ⚡ AI AGENTS 5-HOUR & WEEKLY WINDOW QUOTA STATUS")
+    print("=" * 128)
+    print(f"{'Agent / Account':<24} {'Provider':<9} {'5h State':<11} {'5h Left':<12} {'Next 5h Reset':<18} {'5h Use':<8} {'Wk Use':<8} {'Weekly Reset (Hours & Date)':<32}")
+    print("-" * 128)
+
+    for s in statuses:
+        state_str = "● ACTIVE" if s.is_active else "○ INACTIVE"
+
+        reset_str = "Ready to Poke"
+        if s.resets_at:
+            try:
+                local_dt = datetime.fromisoformat(s.resets_at.replace("Z", "+00:00")).astimezone()
+                reset_str = local_dt.strftime("%H:%M:%S (Today)")
+            except Exception:
+                reset_str = s.resets_at[:19]
+
+        usage_str = f"{s.used_percent}%" if s.is_active else "0.0%"
+        wk_usage = f"{s.weekly_used_percent}%" if s.weekly_used_percent is not None else "-"
+        wk_reset = s.weekly_reset_str
+
+        print(f"{s.name:<24} {s.provider:<9} {state_str:<11} {s.time_remaining_str:<12} {reset_str:<18} {usage_str:<8} {wk_usage:<8} {wk_reset:<32}")
+
+    print("=" * 128 + "\n")
+
+
+# ---------------------------------------------------------------------------
+# Live Dashboard Server
+# ---------------------------------------------------------------------------
+
+DASHBOARD_HTML = """<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>AI Agents 5h Window Dashboard</title>
+  <style>
+    body { background: #0b0f19; color: #f1f5f9; font-family: -apple-system, system-ui, sans-serif; padding: 2rem; margin: 0; }
+    .container { max-width: 1000px; margin: 0 auto; }
+    h1 { margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.75rem; }
+    .sub { color: #94a3b8; font-size: 0.95rem; margin-bottom: 2rem; }
+    .toolbar { display: flex; gap: 1rem; margin-bottom: 1.5rem; }
+    button { background: #2563eb; color: white; border: none; padding: 0.6rem 1.2rem; border-radius: 8px; font-weight: 600; cursor: pointer; }
+    button:hover { background: #1d4ed8; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; }
+    .card { background: #161f30; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 1.25rem; }
+    .card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+    .title { font-weight: 700; font-size: 1.1rem; }
+    .badge { padding: 0.25rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700; }
+    .badge.active { background: rgba(16,185,129,0.2); color: #10b981; }
+    .badge.inactive { background: rgba(148,163,184,0.2); color: #94a3b8; }
+    .timer-box { background: rgba(0,0,0,0.3); border-radius: 8px; padding: 0.85rem; margin-bottom: 1rem; }
+    .timer-num { font-size: 1.5rem; font-family: monospace; font-weight: 700; color: #38bdf8; }
+    .timer-sub { font-size: 0.8rem; color: #94a3b8; margin-top: 0.2rem; }
+    .bar-bg { height: 8px; background: rgba(255,255,255,0.1); border-radius: 99px; overflow: hidden; margin-top: 0.5rem; }
+    .bar-fill { height: 100%; background: #10b981; border-radius: 99px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>⚡ AI Agents 5-Hour Window Tracker</h1>
+    <div class="sub">Tracks 5-hour rolling threshold windows for Claude (Work, Personal, Work2), Codex, and Google Antigravity.</div>
+    <div class="toolbar">
+      <button onclick="fetchData()">🔄 Refresh</button>
+      <button style="background: #059669;" onclick="pokeInactive()">⚡ Poke Inactive Agents</button>
+    </div>
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <script>
+    let agents = [];
+    async function fetchData() {
+      const res = await fetch('/api/status');
+      agents = await res.json();
+      render();
+    }
+
+    async function pokeInactive() {
+      alert("Triggering poke on inactive agents...");
+      await fetch('/api/poke', { method: 'POST' });
+      fetchData();
+    }
+
+    function render() {
+      const grid = document.getElementById('grid');
+      grid.innerHTML = '';
+      agents.forEach(a => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        const badgeClass = a.is_active ? 'badge active' : 'badge inactive';
+        const badgeText = a.is_active ? 'ACTIVE' : 'INACTIVE';
+        card.innerHTML = `
+          <div class="card-top">
+            <div class="title">${a.name}</div>
+            <span class="${badgeClass}">${badgeText}</span>
+          </div>
+          <div class="timer-box">
+            <div class="timer-num" id="t-${a.id}">${a.is_active ? a.time_remaining_str : 'Inactive'}</div>
+            <div class="timer-sub">Reset: ${a.resets_at ? new Date(a.resets_at).toLocaleTimeString() : 'Ready to Poke'}</div>
+          </div>
+          <div style="font-size: 0.85rem; display: flex; justify-content: space-between;">
+            <span>5h Quota Usage:</span>
+            <b>${a.used_percent}%</b>
+          </div>
+          <div class="bar-bg">
+            <div class="bar-fill" style="width: ${Math.max(2, a.used_percent)}%; background: ${a.used_percent > 80 ? '#f43f5e' : (a.used_percent > 50 ? '#f59e0b' : '#10b981')}"></div>
+          </div>
+          ${a.weekly_reset_str && a.weekly_reset_str !== '-' ? `
+          <div style="margin-top: 0.85rem; padding-top: 0.65rem; border-top: 1px solid rgba(255,255,255,0.08); font-size: 0.8rem; color: #94a3b8;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.2rem;">
+              <span>Weekly Quota:</span>
+              <b style="color: #f1f5f9;">${a.weekly_used_percent !== null ? a.weekly_used_percent + '%' : '-'}</b>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.75rem;">
+              <span>Week Reset:</span>
+              <span style="color: #38bdf8; font-weight: 600;">${a.weekly_reset_str}</span>
+            </div>
+          </div>` : ''}
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    setInterval(() => {
+      agents.forEach(a => {
+        if (a.is_active && a.time_remaining_seconds > 0) {
+          a.time_remaining_seconds--;
+          const el = document.getElementById('t-' + a.id);
+          if (el) {
+            const h = Math.floor(a.time_remaining_seconds / 3600);
+            const m = Math.floor((a.time_remaining_seconds % 3600) / 60);
+            const s = a.time_remaining_seconds % 60;
+            el.innerText = `${h}h ${m}m ${s}s`;
+          }
+        }
+      });
+    }, 1000);
+
+    fetchData();
+    setInterval(fetchData, 10000);
+  </script>
+</body>
+</html>
+"""
+
+class SimpleDashboardHandler(BaseHTTPRequestHandler):
+    def log_message(self, format: str, *args: Any) -> None:
+        pass
+
+    def do_GET(self) -> None:
+        if self.path in ("/", "/index.html"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(DASHBOARD_HTML.encode("utf-8"))
+        elif self.path == "/api/status":
+            statuses = fetch_all_statuses()
+            data = [s.to_dict() for s in statuses]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(data).encode("utf-8"))
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_POST(self) -> None:
+        if self.path == "/api/poke":
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len).decode("utf-8") if content_len > 0 else "{}"
+            try:
+                payload = json.loads(body)
+            except Exception:
+                payload = {}
+
+            target = payload.get("agent_id")
+            force = payload.get("force", False)
+
+            statuses = fetch_all_statuses()
+            if target:
+                statuses = [s for s in statuses if s.id == target or s.id == f"claude-{target}"]
+
+            results = []
+            for s in statuses:
+                if not s.is_active or force:
+                    if s.id.startswith("claude-"):
+                        r = poke_claude(s.id.replace("claude-", ""))
+                    elif s.id == "codex":
+                        r = poke_codex()
+                    elif s.id == "agy":
+                        r = poke_agy()
+                    else:
+                        r = {"status": "error", "message": "Unknown agent"}
+                    results.append({"agent_id": s.id, "name": s.name, **r})
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "results": results}).encode("utf-8"))
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+
+def start_dashboard(port: int = 5050) -> None:
+    server = ThreadingHTTPServer(("127.0.0.1", port), SimpleDashboardHandler)
+    url = f"http://localhost:{port}"
+    print(f"\n🚀 Dashboard web server running at {url}")
+    print("Press Ctrl+C to stop.\n")
+    threading.Thread(target=lambda: (time.sleep(0.5), webbrowser.open(url)), daemon=True).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopped.")
+    finally:
+        server.server_close()
+
+
+# ---------------------------------------------------------------------------
+# CLI Entrypoint
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="⚡ AI Agents 5-Hour Window Tracker & Dashboard\n\nMonitor rolling rate limit windows, track weekly resets, and poke AI accounts non-interactively.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  agents --status                Show 5h window state, time remaining, and weekly reset
+  agents --poke                  Poke all inactive accounts to trigger 5h countdowns
+  agents --poke --force          Force poke all accounts even if currently active
+  agents --poke -f -a work       Force poke only the Claude Work account
+  agents --dashboard             Launch live web dashboard at http://localhost:5050
+  agents --dashboard --port 8080 Run dashboard web server on custom port 8080
+""",
+    )
+    parser.add_argument(
+        "--status",
+        "-s",
+        action="store_true",
+        help="Show live 5h window state (active/inactive), time remaining, next reset, and usage %%",
+    )
+    parser.add_argument(
+        "--poke",
+        "-p",
+        action="store_true",
+        help="Poke inactive accounts to trigger 5h countdown (skips active accounts by default)",
+    )
+    parser.add_argument(
+        "--force",
+        "-f",
+        action="store_true",
+        help="When used with --poke, forces a prompt even if the 5h window is already active",
+    )
+    parser.add_argument(
+        "--agent",
+        "-a",
+        type=str,
+        default=None,
+        metavar="ID",
+        help="Target a specific agent by ID (e.g. work, personal, work2, codex, agy)",
+    )
+    parser.add_argument(
+        "--dashboard",
+        "-d",
+        action="store_true",
+        help="Launch the interactive web dashboard with live ticking JavaScript countdown timers",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=5050,
+        metavar="PORT",
+        help="Dashboard web server port (default: 5050)",
+    )
+    parser.add_argument(
+        "cmd",
+        nargs="?",
+        choices=["status", "poke", "dashboard"],
+        help="Optional positional command alias ('status', 'poke', 'dashboard')",
+    )
+
+    args = parser.parse_args()
+
+    is_status = args.status or args.cmd == "status"
+    is_poke = args.poke or args.cmd == "poke"
+    is_dashboard = args.dashboard or args.cmd == "dashboard"
+
+    if is_status:
+        print_status_table()
+    elif is_poke:
+        run_poke_command(force=args.force, agent_id=args.agent)
+    elif is_dashboard:
+        start_dashboard(port=args.port)
+    else:
+        print_status_table()
+        print("Run with: --status, --poke, or --dashboard\n")
+
+
+if __name__ == "__main__":
+    main()

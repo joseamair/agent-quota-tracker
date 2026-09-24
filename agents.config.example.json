@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI Agents Configuration Template",
+  "description": "Copy to agents.config.json or ~/.agents_dashboard/config.json to customize tracked accounts and ordering.",
+  "accounts": [
+    {
+      "id": "agy",
+      "provider": "agy",
+      "name": "Google Antigravity (AGY)",
+      "category": "personal",
+      "enabled": true
+    },
+    {
+      "id": "codex",
+      "provider": "codex",
+      "name": "OpenAI Codex",
+      "category": "personal",
+      "enabled": true
+    },
+    {
+      "id": "personal",
+      "provider": "claude",
+      "profile": "personal",
+      "name": "Claude (Personal)",
+      "category": "personal",
+      "enabled": true
+    },
+    {
+      "id": "work",
+      "provider": "claude",
+      "profile": "work",
+      "name": "Claude (Work)",
+      "category": "work",
+      "enabled": true
+    },
+    {
+      "id": "work2",
+      "provider": "claude",
+      "profile": "work2",
+      "name": "Claude (Work2)",
+      "category": "work",
+      "enabled": true
+    }
+  ]
+}

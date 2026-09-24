@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agents 5h Threshold & Quota Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: rgba(22, 27, 46, 0.75);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --card-hover: rgba(30, 38, 64, 0.9);
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --cyan: #06b6d4;
+      --emerald: #10b981;
+      --amber: #f59e0b;
+      --rose: #f43f5e;
+      --indigo: #6366f1;
+      --purple: #8b5cf6;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: radial-gradient(circle at 50% 0%, #171d36 0%, var(--bg) 75%);
+      color: var(--text-main);
+      font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
+      min-height: 100vh;
+      padding: 2.5rem 1.5rem;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2.5rem;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .header-title {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .header-icon {
+      width: 48px;
+      height: 48px;
+      background: linear-gradient(135deg, var(--cyan), var(--indigo));
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      box-shadow: 0 8px 24px rgba(6, 182, 212, 0.25);
+    }
+
+    h1 {
+      font-size: 1.85rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      background: linear-gradient(to right, #fff, #cbd5e1);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+    }
+
+    button {
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.875rem;
+      font-weight: 600;
+      padding: 0.65rem 1.25rem;
+      border-radius: 10px;
+      border: 1px solid var(--card-border);
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      color: white;
+      border: none;
+      box-shadow: 0 4px 16px rgba(14, 165, 233, 0.3);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(14, 165, 233, 0.45);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-main);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .stats-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1.25rem;
+      margin-bottom: 2rem;
+    }
+
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 1.25rem 1.5rem;
+      backdrop-filter: blur(12px);
+    }
+
+    .stat-label {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    .stat-value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .agent-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      padding: 1.5rem;
+      backdrop-filter: blur(12px);
+      transition: all 0.25s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .agent-card:hover {
+      border-color: rgba(255, 255, 255, 0.18);
+      background: var(--card-hover);
+      transform: translateY(-2px);
+    }
+
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 1.25rem;
+    }
+
+    .agent-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .provider-tag {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 0.2rem 0.5rem;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-muted);
+    }
+
+    .category-tag {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0.2rem 0.5rem;
+      border-radius: 6px;
+      margin-left: 0.35rem;
+    }
+
+    .category-personal {
+      background: rgba(14, 165, 233, 0.15);
+      color: #38bdf8;
+      border: 1px solid rgba(14, 165, 233, 0.3);
+    }
+
+    .category-work {
+      background: rgba(168, 85, 247, 0.15);
+      color: #c084fc;
+      border: 1px solid rgba(168, 85, 247, 0.3);
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.35rem 0.75rem;
+      border-radius: 9999px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .badge-active {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--emerald);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .badge-active::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--emerald);
+      box-shadow: 0 0 8px var(--emerald);
+      animation: pulse 1.8s infinite;
+    }
+
+    .badge-inactive {
+      background: rgba(148, 163, 184, 0.12);
+      color: var(--text-muted);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .window-timer-box {
+      background: rgba(0, 0, 0, 0.25);
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1.25rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .timer-info-col {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .timer-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.2rem;
+    }
+
+    .timer-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.45rem;
+      font-weight: 700;
+      color: #38bdf8;
+    }
+
+    .timer-value.inactive {
+      color: var(--text-muted);
+      font-size: 1.15rem;
+    }
+
+    .reset-info-col {
+      text-align: right;
+    }
+
+    .reset-time-sub {
+      font-size: 0.8rem;
+      font-family: 'JetBrains Mono', monospace;
+      color: #e2e8f0;
+    }
+
+    .progress-section {
+      margin-bottom: 1.25rem;
+    }
+
+    .progress-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      margin-bottom: 0.4rem;
+    }
+
+    .progress-pct {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+    }
+
+    .progress-bar-bg {
+      height: 8px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 9999px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      border-radius: 9999px;
+      transition: width 0.4s ease;
+    }
+
+    .fill-low {
+      background: linear-gradient(90deg, #10b981, #06b6d4);
+    }
+
+    .fill-med {
+      background: linear-gradient(90deg, #06b6d4, #f59e0b);
+    }
+
+    .fill-high {
+      background: linear-gradient(90deg, #f59e0b, #f43f5e);
+    }
+
+    .card-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .btn-poke-card {
+      padding: 0.4rem 0.85rem;
+      font-size: 0.75rem;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #e2e8f0;
+    }
+
+    .btn-poke-card:hover {
+      background: rgba(255, 255, 255, 0.15);
+      color: white;
+    }
+
+    .banner-toast {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      background: #1e293b;
+      color: white;
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 1rem 1.5rem;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+      z-index: 9999;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .banner-toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-title">
+        <div class="header-icon">⚡</div>
+        <div>
+          <h1>AI Agents 5h Window & Quota Tracker</h1>
+          <div class="subtitle">Real-time status across Claude (CCS), Codex, and Google Antigravity</div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="btn-secondary" onclick="fetchData()">🔄 Refresh</button>
+        <button class="btn-primary" onclick="triggerPoke()">⚡ Poke Inactive Agents</button>
+      </div>
+    </header>
+
+    <div class="stats-summary">
+      <div class="stat-card">
+        <div class="stat-label">Active Windows</div>
+        <div class="stat-value" id="summary-active" style="color: var(--emerald);">- / -</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Inactive / Ready to Poke</div>
+        <div class="stat-value" id="summary-inactive" style="color: var(--amber);">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Next Reset Coming In</div>
+        <div class="stat-value" id="summary-next-reset" style="color: #38bdf8;">-</div>
+      </div>
+    </div>
+
+    <div class="grid" id="agents-grid">
+      <!-- Agent cards dynamically injected here -->
+    </div>
+  </div>
+
+  <div class="banner-toast" id="toast">
+    <span id="toast-icon">ℹ️</span>
+    <span id="toast-msg">Notification</span>
+  </div>
+
+  <script>
+    let agentsData = [];
+    let countdownInterval = null;
+
+    function formatSeconds(secs) {
+      if (secs <= 0) return "0s";
+      const h = Math.floor(secs / 3600);
+      const m = Math.floor((secs % 3600) / 60);
+      const s = secs % 60;
+      const parts = [];
+      if (h > 0) parts.push(`${h}h`);
+      if (m > 0) parts.push(`${m}m`);
+      if (s > 0 || parts.length === 0) parts.push(`${s}s`);
+      return parts.join(" ");
+    }
+
+    function showToast(msg, icon = "ℹ️") {
+      const toast = document.getElementById("toast");
+      document.getElementById("toast-msg").innerText = msg;
+      document.getElementById("toast-icon").innerText = icon;
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 4000);
+    }
+
+    async function fetchData() {
+      try {
+        const res = await fetch("/api/status");
+        if (!res.ok) throw new Error("Status endpoint failed");
+        agentsData = await res.json();
+        render();
+      } catch (err) {
+        console.error("Error fetching status:", err);
+      }
+    }
+
+    async function triggerPoke(agentId = null) {
+      showToast("Poking agents...", "⏳");
+      try {
+        const res = await fetch("/api/poke", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agent_id: agentId })
+        });
+        const results = await res.json();
+        const pokedCount = results.filter(r => r.action_taken === "poked").length;
+        const skippedCount = results.filter(r => r.action_taken === "skipped").length;
+        showToast(`Finished: ${pokedCount} poked, ${skippedCount} already active`, "⚡");
+        await fetchData();
+      } catch (err) {
+        showToast("Error triggering poke: " + err.message, "❌");
+      }
+    }
+
+    function render() {
+      const grid = document.getElementById("agents-grid");
+      grid.innerHTML = "";
+
+      let activeCount = 0;
+      let nextResetSeconds = null;
+
+      agentsData.forEach(agent => {
+        if (agent.is_active) {
+          activeCount++;
+          if (agent.time_remaining_seconds > 0) {
+            if (nextResetSeconds === null || agent.time_remaining_seconds < nextResetSeconds) {
+              nextResetSeconds = agent.time_remaining_seconds;
+            }
+          }
+        }
+
+        const card = document.createElement("div");
+        card.className = "agent-card";
+
+        const fillClass = agent.used_percent > 80 ? "fill-high" : (agent.used_percent > 50 ? "fill-med" : "fill-low");
+        const statusBadge = agent.is_active
+          ? `<span class="status-badge badge-active">Active</span>`
+          : `<span class="status-badge badge-inactive">Inactive</span>`;
+
+        let resetFormatted = "Ready for trigger";
+        if (agent.resets_at) {
+          const d = new Date(agent.resets_at);
+          resetFormatted = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+
+        const timerClass = agent.is_active ? "timer-value" : "timer-value inactive";
+        const timerText = agent.is_active ? formatSeconds(agent.time_remaining_seconds) : "Window Inactive";
+
+        card.innerHTML = `
+          <div class="card-top">
+            <div>
+              <div class="agent-title">
+                ${agent.name}
+              </div>
+              <span class="provider-tag">${agent.provider}</span>
+              <span class="category-tag category-${(agent.category || 'personal').toLowerCase()}">${agent.category || 'personal'}</span>
+            </div>
+            ${statusBadge}
+          </div>
+
+          <div class="window-timer-box">
+            <div class="timer-info-col">
+              <span class="timer-label">5h Window Left</span>
+              <span class="${timerClass}" id="timer-${agent.id}">${timerText}</span>
+            </div>
+            <div class="reset-info-col">
+              <span class="timer-label">Next Reset</span>
+              <span class="reset-time-sub">${resetFormatted}</span>
+            </div>
+          </div>
+
+          <div class="progress-section">
+            <div class="progress-labels">
+              <span style="color: var(--text-muted); font-size: 0.75rem;">Account Usage</span>
+              <span class="progress-pct" style="color: ${agent.used_percent > 80 ? 'var(--rose)' : '#f8fafc'}">${agent.used_percent}%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill ${fillClass}" style="width: ${Math.min(100, Math.max(2, agent.used_percent))}%"></div>
+            </div>
+          </div>
+
+          <div class="card-footer">
+            <span>${agent.status_label || ''}</span>
+            <button class="btn-poke-card" onclick="triggerPoke('${agent.id}')">⚡ Poke</button>
+          </div>
+        `;
+
+        grid.appendChild(card);
+      });
+
+      // Update Summary cards
+      document.getElementById("summary-active").innerText = `${activeCount} / ${agentsData.length}`;
+      document.getElementById("summary-inactive").innerText = `${agentsData.length - activeCount}`;
+      document.getElementById("summary-next-reset").innerText = nextResetSeconds !== null ? formatSeconds(nextResetSeconds) : "None active";
+    }
+
+    function tickTimers() {
+      if (!agentsData || agentsData.length === 0) return;
+      let minReset = null;
+
+      agentsData.forEach(agent => {
+        if (agent.is_active && agent.time_remaining_seconds > 0) {
+          agent.time_remaining_seconds--;
+          const el = document.getElementById(`timer-${agent.id}`);
+          if (el) {
+            el.innerText = formatSeconds(agent.time_remaining_seconds);
+          }
+          if (minReset === null || agent.time_remaining_seconds < minReset) {
+            minReset = agent.time_remaining_seconds;
+          }
+        }
+      });
+
+      if (minReset !== null) {
+        document.getElementById("summary-next-reset").innerText = formatSeconds(minReset);
+      }
+    }
+
+    // Initial load
+    fetchData();
+    setInterval(tickTimers, 1000);
+    // Sync with backend every 10 seconds
+    setInterval(fetchData, 10000);
+  </script>
+</body>
+</html>

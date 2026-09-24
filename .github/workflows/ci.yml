@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  python-lint:
+    name: Python Lint & Type Check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install project dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Syntax check standalone script
+        run: uv run python -m py_compile agents.py
+
+      - name: Test CLI entrypoint help
+        run: uv run agents --help
+
+  powershell-lint:
+    name: PowerShell Syntax Validation
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate agents.ps1 syntax
+        shell: pwsh
+        run: |
+          $errors = @()
+          $tokens = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("agents.ps1", [ref]$tokens, [ref]$errors)
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
+
+      - name: Validate agents_native.ps1 syntax
+        shell: pwsh
+        run: |
+          $errors = @()
+          $tokens = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("agents_native.ps1", [ref]$tokens, [ref]$errors)
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }

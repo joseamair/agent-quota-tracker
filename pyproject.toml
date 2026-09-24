@@ -1,0 +1,47 @@
+[project]
+name = "agent-quota-tracker"
+version = "1.0.0"
+description = "CLI tool and dashboard to monitor, track, and poke 5-hour rolling rate limit windows across Claude (CCS), OpenAI Codex, and Google Antigravity (AGY)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Agent Quota Tracker Contributors" }
+]
+keywords = [
+    "ai",
+    "agents",
+    "rate-limits",
+    "claude",
+    "codex",
+    "antigravity",
+    "quota-tracker",
+    "dashboard",
+    "powershell",
+    "cli"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Utilities"
+]
+dependencies = [
+    "rich>=14.0.0",
+]
+
+[project.scripts]
+agents = "agent_quota_tracker.cli:main"
+agent-quota-tracker = "agent_quota_tracker.cli:main"
+agents-dashboard = "agent_quota_tracker.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.15,<0.13.0"]
+build-backend = "uv_build"

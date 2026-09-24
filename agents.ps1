@@ -3,9 +3,9 @@ param(
     [string[]]$ScriptArgs
 )
 
-# 1. Prefer uv if installed
+# 1. Prefer uv if installed (pass --project to locate package from any working directory)
 if (Get-Command uv -ErrorAction SilentlyContinue) {
-    & uv run agents @ScriptArgs
+    & uv run --project "$PSScriptRoot" agents @ScriptArgs
     exit $LASTEXITCODE
 }
 

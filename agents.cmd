@@ -5,13 +5,13 @@ cd /d "%~dp0"
 
 where uv >nul 2>nul
 if %ERRORLEVEL% equ 0 (
-    uv run agents %*
+    uv run --project "%~dp0." agents %*
     exit /b %ERRORLEVEL%
 )
 
 where python >nul 2>nul
 if %ERRORLEVEL% equ 0 (
-    python agents.py %*
+    python "%~dp0agents.py" %*
     exit /b %ERRORLEVEL%
 )
 

@@ -885,6 +885,18 @@ def run_poke_command(force: bool = False, agent_id: Optional[str] = None) -> Non
     print("\nDone!\n")
 
 
+def run_watch_loop(interval: int = 15) -> None:
+    import time
+    print(f"\n⚡ Live Quota Watch Mode enabled (refreshing every {interval}s). Press Ctrl+C to exit.\n")
+    try:
+        while True:
+            os.system('cls' if os.name == 'nt' else 'clear')
+            print_status_table()
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        print("\nWatch mode terminated.\n")
+
+
 def print_status_table(as_json: bool = False) -> None:
     statuses = fetch_all_statuses()
     if as_json:
@@ -1129,6 +1141,15 @@ Examples:
 """,
     )
     parser.add_argument(
+        "--watch",
+        "-w",
+        nargs="?",
+        const=15,
+        type=int,
+        metavar="SECONDS",
+        help="Continuously watch and refresh the status table every SECONDS (default: 15s). Press Ctrl+C to exit.",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Output raw quota status in JSON format (ideal for scripting and automation).",
@@ -1185,7 +1206,9 @@ Examples:
     is_poke = args.poke or args.cmd == "poke"
     is_dashboard = args.dashboard or args.cmd == "dashboard"
 
-    if is_status or args.json:
+    if args.watch is not None:
+        run_watch_loop(interval=args.watch or 15)
+    elif is_status or args.json:
         print_status_table(as_json=args.json)
     elif is_poke:
         run_poke_command(force=args.force, agent_id=args.agent)

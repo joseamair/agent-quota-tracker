@@ -21,6 +21,8 @@ A lightweight, local quota monitoring system and web dashboard designed for deve
   - [`agents --status`](#1-agents---status--s)
   - [`agents --poke`](#2-agents---poke--p)
   - [`agents --dashboard`](#3-agents---dashboard--d)
+  - [`agents --status --json`](#4-agents---status---json)
+  - [`agents --status --watch`](#5-agents---status---watch--w)
 - [Global PowerShell Integration](#-global-powershell-integration)
 - [Web Dashboard Preview](#-web-dashboard-preview)
 - [Security & Credential Privacy](#-security--credential-privacy)
@@ -206,7 +208,7 @@ uv run agents --json
 
 ---
 
-### 4. `agents --status --watch` (`-w`)
+### 5. `agents --status --watch` (`-w`)
 Continuously refreshes the quota status table in your terminal every N seconds (default: 15s) with a clear screen:
 
 ```powershell

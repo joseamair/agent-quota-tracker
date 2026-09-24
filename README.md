@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
 [![Managed by uv](https://img.shields.io/badge/Managed%20by-uv-DE5FE9.svg)](https://github.com/astral-sh/uv)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20PowerShell-0078D4.svg)](https://microsoft.com/powershell)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-0078D4.svg)](https://github.com/joseamair/agent-quota-tracker)
 [![CI](https://github.com/joseamair/agent-quota-tracker/actions/workflows/ci.yml/badge.svg)](.github/workflows/ci.yml)
 
 A lightweight, local quota monitoring system and web dashboard designed for developers managing multiple AI coding accounts. It automatically tracks **5-hour rolling threshold windows**, calculates **7-day weekly reset dates**, and provides a **verified smart poke engine** to start inactive quota countdowns on demand.
@@ -256,6 +256,74 @@ agents --status
 agents --poke
 agents --dashboard
 ```
+
+---
+
+## 🐧 Linux & 🍎 macOS Compatibility & Setup Guide
+
+`agent-quota-tracker` is cross-platform and natively supported on **Ubuntu, Debian, Fedora, Arch Linux, and macOS**.
+
+### 1. Running with POSIX Bash (`agents.sh`)
+
+Make the script executable:
+```bash
+chmod +x agents.sh
+./agents.sh --status
+./agents.sh --poke
+./agents.sh --dashboard
+```
+
+### 2. Global Shell Alias (`bash`, `zsh`, `fish`)
+
+Add this alias to your shell profile (`~/.bashrc`, `~/.zshrc`, or `~/.config/fish/config.fish`):
+
+```bash
+# In ~/.bashrc or ~/.zshrc:
+alias agents="$HOME/path/to/agent-quota-tracker/agents.sh"
+```
+
+Reload your profile (`source ~/.bashrc` or `source ~/.zshrc`) to run `agents` from any working directory!
+
+### 3. Cross-Platform Path Mapping
+
+Provider credentials and configurations are mapped automatically from your standard home directory:
+- **Anthropic CCS**: `~/.ccs/instances/`
+- **Claude CLI cache**: `~/.claude.json`
+- **OpenAI Codex**: `~/.codex/`
+- **Google Antigravity**: `~/.gemini/antigravity-cli/`
+- **Quota Tracker Config**: `~/.agent_quota_tracker/config.json` (or local `agents.config.json`)
+
+---
+
+## 🗺️ Project Roadmap
+
+- [ ] **Additional Assistant Support**: Trackers for Cursor, Windsurf, GitHub Copilot CLI, and Aider.
+- [ ] **Desktop Toast Notifications**: Windows & Linux desktop notifications when an inactive 5-hour window cools down and is ready to poke.
+- [ ] **Historical Analytics**: SQLite local logging of quota exhaustion patterns to display 30-day velocity graphs.
+- [ ] **Tray Icon & Background Polling**: Optional system tray applet showing live countdown in taskbar.
+
+---
+
+## ❓ Frequently Asked Questions (FAQ)
+
+<details>
+<summary><b>Does poking consume expensive tokens or count as quota usage?</b></summary>
+<br>
+The poke engine sends a lightweight greeting prompt (<code>"Hello, how are you doing?"</code>) with <code>stdin=DEVNULL</code>. This triggers the provider's rolling 5-hour window countdown without running commands or consuming significant prompt tokens. Active windows are automatically skipped.
+</details>
+
+<details>
+<summary><b>How are credentials protected?</b></summary>
+<br>
+All API calls are directed strictly to official provider endpoints (such as <code>https://api.anthropic.com/api/oauth/usage</code>). Tokens are read in local memory only and never written to logs, committed to Git, or sent to third-party telemetry.
+</details>
+
+<details>
+<summary><b>Can I reorder or disable specific accounts?</b></summary>
+<br>
+Yes! Edit <code>agents.config.json</code> (or copy from <code>agents.config.example.json</code>). You can toggle <code>"enabled": false</code> or change the array ordering to your preference.
+</details>
+
 
 ---
 

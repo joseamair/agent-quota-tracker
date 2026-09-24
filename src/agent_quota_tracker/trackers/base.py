@@ -44,7 +44,7 @@ def calculate_weekly_reset(resets_at_str: Optional[str]) -> tuple[Optional[float
 
 def extract_reply_snippet(output: str, max_chars: int = 120) -> str:
     """Extract a clean, readable one-line snippet from the agent's CLI output."""
-    if not output:
+    if not output or not output.strip():
         return "(no reply text captured)"
     output = output.replace("\u2018", "'").replace("\u2019", "'").replace("\u201c", '"').replace("\u201d", '"')
     lines = [line.strip() for line in output.splitlines() if line.strip()]

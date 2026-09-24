@@ -206,6 +206,19 @@ uv run agents --json
 
 ---
 
+### 4. `agents --status --watch` (`-w`)
+Continuously refreshes the quota status table in your terminal every N seconds (default: 15s) with a clear screen:
+
+```powershell
+# Refresh every 15 seconds:
+.\agents.ps1 --status --watch
+
+# Custom interval (e.g. 30 seconds):
+.\agents.ps1 --watch 30
+```
+
+---
+
 ## ⚙️ Account Configuration
 
 Tracked accounts and display order are configured in `agents.config.json` (or `~/.agents_dashboard/config.json`). By default, personal accounts are grouped at the top, followed by work accounts:

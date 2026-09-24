@@ -40,6 +40,18 @@ def format_reset_time(iso_str: Optional[str]) -> str:
         return iso_str[:19] if iso_str else "N/A"
 
 
+def run_watch_loop(interval: int = 15) -> None:
+    import time
+    console.print(f"\n[bold cyan]⚡ Live Quota Watch Mode enabled (refreshing every {interval}s). Press Ctrl+C to exit.[/bold cyan]\n")
+    try:
+        while True:
+            console.clear()
+            print_status_table()
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        console.print("\n[dim]Watch mode terminated.[/dim]\n")
+
+
 def print_status_table(as_json: bool = False) -> None:
     statuses = get_all_statuses()
     if as_json:
@@ -140,6 +152,15 @@ Examples:
 
     # Allow both flags and subcommands
     parser.add_argument(
+        "--watch",
+        "-w",
+        nargs="?",
+        const=15,
+        type=int,
+        metavar="SECONDS",
+        help="Continuously watch and refresh the status table every SECONDS (default: 15s). Press Ctrl+C to exit.",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Output raw quota status in JSON format (ideal for scripting and automation).",
@@ -202,7 +223,9 @@ Examples:
     is_poke = args.poke or args.subcommand == "poke"
     is_dashboard = args.dashboard or args.cmd == "dashboard" if hasattr(args, "cmd") else (args.dashboard or args.subcommand == "dashboard")
 
-    if is_status or args.json:
+    if args.watch is not None:
+        run_watch_loop(interval=args.watch or 15)
+    elif is_status or args.json:
         print_status_table(as_json=args.json)
     elif is_poke:
         run_poke(force=args.force, agent_id=args.agent)

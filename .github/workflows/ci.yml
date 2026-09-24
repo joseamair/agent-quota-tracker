@@ -7,9 +7,15 @@ on:
     branches: [main, master]
 
 jobs:
-  python-lint:
-    name: Python Lint & Type Check
-    runs-on: windows-latest
+  test-matrix:
+    name: Test (${{ matrix.os }} - Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+
     steps:
       - uses: actions/checkout@v4
 
@@ -18,20 +24,29 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Set up Python
-        run: uv python install 3.11
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
 
-      - name: Install project dependencies
-        run: uv sync --all-extras --dev
+      - name: Install project dependencies & dev tools
+        run: uv sync --dev
 
       - name: Syntax check standalone script
         run: uv run python -m py_compile agents.py
 
+      - name: Run automated test suite (pytest)
+        run: uv run pytest -v
+
       - name: Test CLI entrypoint help
         run: uv run agents --help
 
+      - name: Test POSIX Bash runner (Linux & macOS)
+        if: runner.os != 'Windows'
+        run: |
+          chmod +x agents.sh
+          ./agents.sh --help
+
   powershell-lint:
-    name: PowerShell Syntax Validation
+    name: PowerShell Syntax Validation (Windows)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

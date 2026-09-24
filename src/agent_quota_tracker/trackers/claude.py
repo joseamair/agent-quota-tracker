@@ -101,6 +101,7 @@ class ClaudeTracker(BaseTracker):
         live_data = self._fetch_live_usage()
         five_hour = {}
         seven_day = {}
+        cached_usage = {}
 
         if live_data:
             five_hour = live_data.get("five_hour") or {}
@@ -186,7 +187,7 @@ class ClaudeTracker(BaseTracker):
             last_poked_at=last_poked_at,
             details={
                 "profile": self.profile,
-                "fetched_at_ms": cached_usage.get("fetchedAtMs"),
+                "fetched_at_ms": cached_usage.get("fetchedAtMs") if cached_usage else None,
                 "five_hour_raw": five_hour,
                 "seven_day_raw": seven_day,
             },

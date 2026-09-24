@@ -551,11 +551,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           </div>
 
           ${agent.weekly_reset_str && agent.weekly_reset_str !== '-' ? `
-          <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.06); font-size: 0.8rem; color: var(--text-muted);">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 0.3rem;">
-              <span>Weekly Quota:</span>
-              <b style="color: #f1f5f9;">${agent.weekly_used_percent !== null ? agent.weekly_used_percent + '%' : '-'}</b>
+          <div style="margin-top: 0.85rem; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.06); font-size: 0.8rem; color: var(--text-muted);">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;">
+              <span style="font-size: 0.75rem;">Weekly Quota:</span>
+              <b style="color: #f1f5f9; font-size: 0.75rem;">${agent.weekly_used_percent !== null ? agent.weekly_used_percent + '%' : '-'}</b>
             </div>
+            ${agent.weekly_used_percent !== null ? `
+            <div class="progress-bar-bg" style="height: 4px; margin-bottom: 0.45rem;">
+              <div class="progress-bar-fill" style="width: ${Math.min(100, Math.max(2, agent.weekly_used_percent))}%; background: linear-gradient(90deg, #38bdf8, #818cf8);"></div>
+            </div>` : ''}
             <div style="display: flex; justify-content: space-between; font-size: 0.75rem;">
               <span>Weekly Reset:</span>
               <span style="color: #38bdf8; font-weight: 600;">${agent.weekly_reset_str}</span>

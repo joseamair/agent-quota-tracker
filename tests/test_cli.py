@@ -51,9 +51,13 @@ def test_cli_parser_flags():
 def test_format_reset_time_compact():
     assert format_reset_time(None, compact=True) == "Ready"
     now = datetime.now().astimezone()
-    iso_str = (now + timedelta(hours=1)).isoformat()
-    res = format_reset_time(iso_str, compact=True)
-    assert "(Today)" in res
+    today_time = now.replace(minute=0, second=0)
+    res_today = format_reset_time(today_time.isoformat(), compact=True)
+    assert "(Today)" in res_today
+
+    future_time = now + timedelta(days=2)
+    res_future = format_reset_time(future_time.isoformat(), compact=True)
+    assert "(Today)" not in res_future
 
 
 def test_get_terminal_width():

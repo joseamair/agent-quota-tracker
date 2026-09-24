@@ -904,30 +904,68 @@ def print_status_table(as_json: bool = False) -> None:
         print(json.dumps([s.to_dict() for s in statuses], indent=2))
         return
 
-    print("\n" + "=" * 110)
-    print("  ⚡ AI AGENTS 5-HOUR & WEEKLY WINDOW QUOTA STATUS")
-    print("=" * 110)
-    print(f"{'Agent / Account':<24} {'Provider':<8} {'5h State':<10} {'5h Left':<11} {'5h Reset':<18} {'5h Use':<8} {'Wk Use':<8} {'Weekly Reset':<20}")
-    print("-" * 110)
+    try:
+        term_w = shutil.get_terminal_size(fallback=(110, 24)).columns
+    except Exception:
+        term_w = 110
 
-    for s in statuses:
-        state_str = "● ACTIVE" if s.is_active else "○ INACTIVE"
+    if term_w >= 120:
+        bar_len = 110
+        print("\n" + "=" * bar_len)
+        print("  ⚡ AI AGENTS 5-HOUR & WEEKLY WINDOW QUOTA STATUS")
+        print("=" * bar_len)
+        print(f"{'Agent / Account':<24} {'Provider':<8} {'5h State':<10} {'5h Left':<11} {'5h Reset':<18} {'5h Use':<8} {'Wk Use':<8} {'Weekly Reset'}")
+        print("-" * bar_len)
 
-        reset_str = "Ready to Poke"
-        if s.resets_at:
-            try:
-                local_dt = datetime.fromisoformat(s.resets_at.replace("Z", "+00:00")).astimezone()
-                reset_str = local_dt.strftime("%H:%M:%S (Today)")
-            except Exception:
-                reset_str = s.resets_at[:19]
+        for s in statuses:
+            state_str = "● ACTIVE" if s.is_active else "○ INACTIVE"
+            reset_str = "Ready to Poke"
+            if s.resets_at:
+                try:
+                    local_dt = datetime.fromisoformat(s.resets_at.replace("Z", "+00:00")).astimezone()
+                    reset_str = local_dt.strftime("%H:%M:%S (Today)")
+                except Exception:
+                    reset_str = s.resets_at[:19]
 
-        usage_str = f"{s.used_percent}%" if s.is_active else "0.0%"
-        wk_usage = f"{s.weekly_used_percent}%" if s.weekly_used_percent is not None else "-"
-        wk_reset = s.weekly_reset_str
+            usage_str = f"{s.used_percent}%" if s.is_active else "0.0%"
+            wk_usage = f"{s.weekly_used_percent}%" if s.weekly_used_percent is not None else "-"
+            wk_reset = s.weekly_reset_str
+            print(f"{s.name:<24} {s.provider:<8} {state_str:<10} {s.time_remaining_str:<11} {reset_str:<18} {usage_str:<8} {wk_usage:<8} {wk_reset}")
 
-        print(f"{s.name:<24} {s.provider:<8} {state_str:<10} {s.time_remaining_str:<11} {reset_str:<18} {usage_str:<8} {wk_usage:<8} {wk_reset}")
+        print("=" * bar_len + "\n")
+    else:
+        # Compact view for narrower terminals (< 120 cols)
+        bar_len = 80
+        print("\n" + "=" * bar_len)
+        print("  ⚡ AI AGENTS QUOTA STATUS")
+        print("=" * bar_len)
+        print(f"{'Agent':<14} {'State':<10} {'Left':<9} {'Reset':<7} {'5h%':<6} {'Wk%':<6} {'Weekly'}")
+        print("-" * bar_len)
 
-    print("=" * 110 + "\n")
+        for s in statuses:
+            name = s.name.replace("Google Antigravity (AGY)", "Antigravity").replace("OpenAI Codex", "Codex").replace("Claude (", "").replace(")", "")
+            state_str = "● ACTIVE" if s.is_active else "○ INACT"
+            parts = s.time_remaining_str.split()
+            left_str = f"{parts[0]} {parts[1]}" if (len(parts) >= 2 and s.is_active) else (s.time_remaining_str if s.is_active else "Ready")
+            reset_str = "Ready"
+            if s.resets_at:
+                try:
+                    local_dt = datetime.fromisoformat(s.resets_at.replace("Z", "+00:00")).astimezone()
+                    reset_str = local_dt.strftime("%H:%M")
+                except Exception:
+                    reset_str = "N/A"
+            usage_str = f"{int(round(s.used_percent))}%" if s.is_active else "0%"
+            wk_usage = f"{int(round(s.weekly_used_percent))}%" if s.weekly_used_percent is not None else "-"
+            wk_reset = s.weekly_reset_str
+            if wk_reset != "-" and "(" in wk_reset:
+                parts = wk_reset.split("(")
+                h_part = parts[0].strip().replace(".0h", "h")
+                day_name = parts[1].split()[0]
+                wk_reset = f"{h_part} ({day_name})"
+
+            print(f"{name:<14} {state_str:<10} {left_str:<9} {reset_str:<7} {usage_str:<6} {wk_usage:<6} {wk_reset}")
+
+        print("=" * bar_len + "\n")
 
 
 # ---------------------------------------------------------------------------

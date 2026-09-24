@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from datetime import datetime
 from typing import Optional
@@ -20,24 +21,34 @@ from rich.text import Text
 
 from agent_quota_tracker.core import get_all_statuses, poke_all
 from agent_quota_tracker.dashboard import start_dashboard_server
+from agent_quota_tracker.models import AgentStatus
 
 console = Console(legacy_windows=False)
 
 
-def format_reset_time(iso_str: Optional[str]) -> str:
+def get_terminal_width() -> int:
+    """Detect current CLI width dynamically with a robust fallback."""
+    try:
+        cols = shutil.get_terminal_size(fallback=(120, 24)).columns
+        return max(cols, 40)
+    except Exception:
+        return 120
+
+
+def format_reset_time(iso_str: Optional[str], compact: bool = False) -> str:
     if not iso_str:
-        return "Ready to Poke"
+        return "Ready" if compact else "Ready to Poke"
     try:
         dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
         local_dt = dt.astimezone()
         now = datetime.now(local_dt.tzinfo)
-        time_part = local_dt.strftime("%H:%M:%S")
+        time_part = local_dt.strftime("%H:%M") if compact else local_dt.strftime("%H:%M:%S")
         if local_dt.date() == now.date():
             return f"{time_part} (Today)"
         else:
-            return local_dt.strftime("%b %d, %H:%M:%S")
+            return local_dt.strftime("%b %d, %H:%M") if compact else local_dt.strftime("%b %d, %H:%M:%S")
     except Exception:
-        return iso_str[:19] if iso_str else "N/A"
+        return iso_str[:16] if (iso_str and compact) else (iso_str[:19] if iso_str else "N/A")
 
 
 def run_watch_loop(interval: int = 15) -> None:
@@ -52,65 +63,192 @@ def run_watch_loop(interval: int = 15) -> None:
         console.print("\n[dim]Watch mode terminated.[/dim]\n")
 
 
-def print_status_table(as_json: bool = False) -> None:
+def build_status_table(statuses: list[AgentStatus], term_w: Optional[int] = None) -> Table:
+    """Builds a rich Table dynamically scaled to current CLI terminal width."""
+    if term_w is None:
+        term_w = get_terminal_width()
+
+    table = Table(
+        title="[bold cyan]⚡ AI Agents 5-Hour & Weekly Quota Status[/bold cyan]",
+        header_style="bold magenta",
+        border_style="bright_blue",
+        show_lines=False,
+    )
+
+    if term_w >= 135:
+        # Full View (Wide terminals >= 135 cols)
+        table.add_column("Agent / Account", style="bold white", no_wrap=True)
+        table.add_column("Provider", style="cyan", justify="center", no_wrap=True)
+        table.add_column("5h State", justify="center", no_wrap=True)
+        table.add_column("5h Left", justify="right", style="bold", no_wrap=True)
+        table.add_column("5h Reset", justify="center", no_wrap=True)
+        table.add_column("5h Use", justify="right", no_wrap=True)
+        table.add_column("Wk Use", justify="right", style="dim", no_wrap=True)
+        table.add_column("Weekly Reset", justify="left", style="cyan", no_wrap=True)
+
+        for s in statuses:
+            state_text = Text("● ACTIVE", style="bold green") if s.is_active else Text("○ INACTIVE", style="dim white")
+            rem_text = Text(s.time_remaining_str, style="bold cyan") if s.is_active else Text("Ready to Poke", style="dim yellow")
+            pct_val = round(s.used_percent, 1)
+            pct_style = "bold red" if pct_val > 80 else ("bold yellow" if pct_val > 50 else "bold green")
+            usage_text = Text(f"{pct_val}%", style=pct_style)
+            weekly_text = f"{round(s.weekly_used_percent, 1)}%" if s.weekly_used_percent is not None else "-"
+            weekly_reset = Text(s.weekly_reset_str, style="bold cyan" if s.weekly_reset_str != "-" else "dim")
+
+            table.add_row(
+                s.name,
+                s.provider.upper(),
+                state_text,
+                rem_text,
+                format_reset_time(s.resets_at, compact=False),
+                usage_text,
+                weekly_text,
+                weekly_reset,
+            )
+
+    elif term_w >= 110:
+        # Balanced View (Standard terminal 110-134 cols, e.g. default Windows Terminal/PowerShell)
+        table.add_column("Account", style="bold white", no_wrap=True)
+        table.add_column("Provider", style="cyan", justify="center", no_wrap=True)
+        table.add_column("State", justify="center", no_wrap=True)
+        table.add_column("5h Left", justify="right", style="bold", no_wrap=True)
+        table.add_column("5h Reset", justify="center", no_wrap=True)
+        table.add_column("5h %", justify="right", no_wrap=True)
+        table.add_column("Wk %", justify="right", style="dim", no_wrap=True)
+        table.add_column("Weekly Reset", justify="left", style="cyan", no_wrap=True)
+
+        for s in statuses:
+            name = s.name.replace(" (AGY)", "").replace("Google Antigravity", "Antigravity")
+            state_text = Text("● ACTIVE", style="bold green") if s.is_active else Text("○ INACTIVE", style="dim white")
+            rem_text = Text(s.time_remaining_str, style="bold cyan") if s.is_active else Text("Ready", style="dim yellow")
+            pct_val = round(s.used_percent, 1)
+            pct_style = "bold red" if pct_val > 80 else ("bold yellow" if pct_val > 50 else "bold green")
+            usage_text = Text(f"{pct_val}%", style=pct_style)
+            weekly_text = f"{round(s.weekly_used_percent, 1)}%" if s.weekly_used_percent is not None else "-"
+
+            if s.weekly_reset_str != "-" and "(" in s.weekly_reset_str:
+                parts = s.weekly_reset_str.split("(")
+                h_part = parts[0].strip().replace(".0h", "h")
+                d_part = parts[1].split(",")[0].strip(" )")
+                wk_reset_str = f"{h_part} ({d_part})"
+            else:
+                wk_reset_str = s.weekly_reset_str
+            weekly_reset = Text(wk_reset_str, style="bold cyan" if wk_reset_str != "-" else "dim")
+
+            table.add_row(
+                name,
+                s.provider.upper(),
+                state_text,
+                rem_text,
+                format_reset_time(s.resets_at, compact=True),
+                usage_text,
+                weekly_text,
+                weekly_reset,
+            )
+
+    elif term_w >= 75:
+        # Compact View (Split panes / narrow terminals 75-109 cols)
+        table.add_column("Agent", style="bold white", no_wrap=True)
+        table.add_column("Type", style="cyan", justify="center", no_wrap=True)
+        table.add_column("State", justify="center", no_wrap=True)
+        table.add_column("Left", justify="right", style="bold", no_wrap=True)
+        table.add_column("Reset", justify="center", no_wrap=True)
+        table.add_column("5h%", justify="right", no_wrap=True)
+        table.add_column("Wk%", justify="right", style="dim", no_wrap=True)
+        table.add_column("Weekly", justify="left", style="cyan", no_wrap=True)
+
+        for s in statuses:
+            name = s.name.replace("Google Antigravity (AGY)", "Antigravity").replace("OpenAI Codex", "Codex").replace("Claude (", "").replace(")", "")
+            state_text = Text("● ACTIVE", style="bold green") if s.is_active else Text("○ INACT", style="dim white")
+            parts = s.time_remaining_str.split()
+            if len(parts) >= 2 and s.is_active:
+                left_str = f"{parts[0]} {parts[1]}"
+            else:
+                left_str = s.time_remaining_str if s.is_active else "Ready"
+            rem_text = Text(left_str, style="bold cyan") if s.is_active else Text("Ready", style="dim yellow")
+
+            pct_val = int(round(s.used_percent))
+            pct_style = "bold red" if pct_val > 80 else ("bold yellow" if pct_val > 50 else "bold green")
+            usage_text = Text(f"{pct_val}%", style=pct_style)
+            weekly_text = f"{int(round(s.weekly_used_percent))}%" if s.weekly_used_percent is not None else "-"
+
+            if s.resets_at:
+                try:
+                    dt = datetime.fromisoformat(s.resets_at.replace("Z", "+00:00")).astimezone()
+                    reset_5h = dt.strftime("%H:%M")
+                except Exception:
+                    reset_5h = "N/A"
+            else:
+                reset_5h = "Ready"
+
+            if s.weekly_reset_str != "-" and "(" in s.weekly_reset_str:
+                parts = s.weekly_reset_str.split("(")
+                h_part = parts[0].strip().replace(".0h", "h")
+                day_name = parts[1].split()[0]
+                wk_reset_str = f"{h_part} ({day_name})"
+            else:
+                wk_reset_str = s.weekly_reset_str
+            weekly_reset = Text(wk_reset_str, style="bold cyan" if wk_reset_str != "-" else "dim")
+
+            table.add_row(
+                name,
+                s.provider.upper(),
+                state_text,
+                rem_text,
+                reset_5h,
+                usage_text,
+                weekly_text,
+                weekly_reset,
+            )
+
+    else:
+        # Mini View (Narrow terminals < 75 cols)
+        table.add_column("Agent", style="bold white", no_wrap=True)
+        table.add_column("State", justify="center", no_wrap=True)
+        table.add_column("Left", justify="right", style="bold", no_wrap=True)
+        table.add_column("5h%", justify="right", no_wrap=True)
+        table.add_column("Reset", justify="left", style="cyan", no_wrap=True)
+
+        for s in statuses:
+            name = s.name.replace("Google Antigravity (AGY)", "Antigravity").replace("OpenAI Codex", "Codex").replace("Claude (", "").replace(")", "")
+            state_text = Text("● ACT", style="bold green") if s.is_active else Text("○ OFF", style="dim white")
+            parts = s.time_remaining_str.split()
+            left_str = f"{parts[0]} {parts[1]}" if (len(parts) >= 2 and s.is_active) else (s.time_remaining_str if s.is_active else "Ready")
+            rem_text = Text(left_str, style="bold cyan") if s.is_active else Text("Ready", style="dim yellow")
+            pct_val = int(round(s.used_percent))
+            pct_style = "bold red" if pct_val > 80 else ("bold yellow" if pct_val > 50 else "bold green")
+            usage_text = Text(f"{pct_val}%", style=pct_style)
+
+            reset_time = ""
+            if s.resets_at:
+                try:
+                    dt = datetime.fromisoformat(s.resets_at.replace("Z", "+00:00")).astimezone()
+                    reset_time = dt.strftime("%H:%M")
+                except Exception:
+                    reset_time = ""
+            hours_str = ""
+            if s.weekly_remaining_hours is not None:
+                hours_str = f" ({int(s.weekly_remaining_hours)}h)"
+            reset_summary = f"{reset_time}{hours_str}" if reset_time else (hours_str.strip() or "-")
+
+            table.add_row(name, state_text, rem_text, usage_text, reset_summary)
+
+    return table
+
+
+def print_status_table(as_json: bool = False, term_w: Optional[int] = None) -> None:
     statuses = get_all_statuses()
     if as_json:
         import json
         print(json.dumps([s.to_dict() for s in statuses], indent=2))
         return
 
-    table = Table(
-        title="[bold cyan]⚡ AI Agents 5-Hour & Weekly Quota Status[/bold cyan]",
-        header_style="bold magenta",
-        border_style="bright_blue",
-        show_lines=True,
-    )
-
-    table.add_column("Agent / Account", style="bold white")
-    table.add_column("Provider", style="cyan", justify="center")
-    table.add_column("5h State", justify="center")
-    table.add_column("5h Left", justify="right", style="bold")
-    table.add_column("5h Reset", justify="center")
-    table.add_column("5h Use", justify="right")
-    table.add_column("Wk Use", justify="right", style="dim")
-    table.add_column("Weekly Reset", justify="left", style="cyan")
-
-    for s in statuses:
-        # Window State
-        if s.is_active:
-            state_text = Text("● ACTIVE", style="bold green")
-            rem_text = Text(s.time_remaining_str, style="bold cyan")
-        else:
-            state_text = Text("○ INACTIVE", style="dim white")
-            rem_text = Text("Ready to Poke", style="dim yellow")
-
-        # Usage %
-        pct_val = round(s.used_percent, 1)
-        if pct_val > 80:
-            usage_text = Text(f"{pct_val}%", style="bold red")
-        elif pct_val > 50:
-            usage_text = Text(f"{pct_val}%", style="bold yellow")
-        else:
-            usage_text = Text(f"{pct_val}%", style="bold green")
-
-        # Weekly
-        weekly_text = f"{round(s.weekly_used_percent, 1)}%" if s.weekly_used_percent is not None else "-"
-        weekly_reset = Text(s.weekly_reset_str, style="bold cyan" if s.weekly_reset_str != "-" else "dim")
-
-        table.add_row(
-            s.name,
-            s.provider.upper(),
-            state_text,
-            rem_text,
-            format_reset_time(s.resets_at),
-            usage_text,
-            weekly_text,
-            weekly_reset,
-        )
-
-    console.print()
-    console.print(table)
-    console.print()
+    width = term_w or get_terminal_width()
+    table = build_status_table(statuses, term_w=width)
+    active_console = Console(legacy_windows=False, width=width)
+    active_console.print()
+    active_console.print(table)
+    active_console.print()
 
 
 def run_poke(force: bool = False, agent_id: Optional[str] = None) -> None:

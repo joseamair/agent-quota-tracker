@@ -364,18 +364,54 @@ function Get-AgentData {
 }
 
 function Show-StatusTable {
-    Write-Host "`n⚡ AI AGENTS 5-HOUR & WEEKLY WINDOW QUOTA STATUS" -ForegroundColor Cyan
-    Write-Host ("=" * 110) -ForegroundColor DarkCyan
-    $header = "{0,-24} {1,-8} {2,-10} {3,-11} {4,-18} {5,-8} {6,-8} {7}" -f "Agent / Account", "Provider", "5h State", "5h Left", "5h Reset", "5h Use", "Wk Use", "Weekly Reset"
-    Write-Host $header -ForegroundColor Yellow
-    Write-Host ("-" * 110) -ForegroundColor DarkGray
-    $data = Get-AgentData
-    foreach ($a in $data) {
-        $color = if ($a.IsActive) { "White" } else { "DarkGray" }
-        $line = "{0,-24} {1,-8} {2,-10} {3,-11} {4,-18} {5,-8} {6,-8} {7}" -f $a.Name, $a.Provider, $a.State, $a.Remaining, $a.NextReset, $a.UsagePct, $a.WkUsage, $a.WeeklyReset
-        Write-Host $line -ForegroundColor $color
+    $winWidth = 120
+    try {
+        if ($Host -and $Host.UI -and $Host.UI.RawUI) {
+            $winWidth = $Host.UI.RawUI.WindowSize.Width
+        }
+    } catch {
+        $winWidth = 120
     }
-    Write-Host ("=" * 110 + "`n") -ForegroundColor DarkCyan
+
+    if ($winWidth -ge 115) {
+        Write-Host "`n⚡ AI AGENTS 5-HOUR & WEEKLY WINDOW QUOTA STATUS" -ForegroundColor Cyan
+        Write-Host ("=" * 110) -ForegroundColor DarkCyan
+        $header = "{0,-24} {1,-8} {2,-10} {3,-11} {4,-18} {5,-8} {6,-8} {7}" -f "Agent / Account", "Provider", "5h State", "5h Left", "5h Reset", "5h Use", "Wk Use", "Weekly Reset"
+        Write-Host $header -ForegroundColor Yellow
+        Write-Host ("-" * 110) -ForegroundColor DarkGray
+        $data = Get-AgentData
+        foreach ($a in $data) {
+            $color = if ($a.IsActive) { "White" } else { "DarkGray" }
+            $line = "{0,-24} {1,-8} {2,-10} {3,-11} {4,-18} {5,-8} {6,-8} {7}" -f $a.Name, $a.Provider, $a.State, $a.Remaining, $a.NextReset, $a.UsagePct, $a.WkUsage, $a.WeeklyReset
+            Write-Host $line -ForegroundColor $color
+        }
+        Write-Host ("=" * 110 + "`n") -ForegroundColor DarkCyan
+    } else {
+        Write-Host "`n⚡ AI AGENTS QUOTA STATUS" -ForegroundColor Cyan
+        Write-Host ("=" * 80) -ForegroundColor DarkCyan
+        $header = "{0,-14} {1,-10} {2,-9} {3,-7} {4,-6} {5,-6} {6}" -f "Agent", "State", "Left", "Reset", "5h%", "Wk%", "Weekly"
+        Write-Host $header -ForegroundColor Yellow
+        Write-Host ("-" * 80) -ForegroundColor DarkGray
+        $data = Get-AgentData
+        foreach ($a in $data) {
+            $color = if ($a.IsActive) { "White" } else { "DarkGray" }
+            $shortName = $a.Name.Replace("Google Antigravity (AGY)", "Antigravity").Replace("OpenAI Codex", "Codex").Replace("Claude (", "").Replace(")", "")
+            $shortState = if ($a.IsActive) { "● ACTIVE" } else { "○ INACT" }
+            $parts = $a.Remaining -split " "
+            $shortLeft = if ($parts.Length -ge 2 -and $a.IsActive) { "$($parts[0]) $($parts[1])" } else { $a.Remaining }
+            $shortReset = $a.NextReset.Replace(" (Today)", "")
+            $wkReset = $a.WeeklyReset
+            if ($wkReset -and $wkReset -ne "-" -and $wkReset.Contains("(")) {
+                $p = $wkReset.Split("(")
+                $h = $p[0].Trim().Replace(".0h", "h")
+                $day = $p[1].Split(" ")[0].Trim(" )")
+                $wkReset = "$h ($day)"
+            }
+            $line = "{0,-14} {1,-10} {2,-9} {3,-7} {4,-6} {5,-6} {6}" -f $shortName, $shortState, $shortLeft, $shortReset, $a.UsagePct, $a.WkUsage, $wkReset
+            Write-Host $line -ForegroundColor $color
+        }
+        Write-Host ("=" * 80 + "`n") -ForegroundColor DarkCyan
+    }
 }
 
 if ($Json) {

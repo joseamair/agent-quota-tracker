@@ -21,7 +21,7 @@ from rich.text import Text
 from agent_quota_tracker.core import get_all_statuses, poke_all
 from agent_quota_tracker.dashboard import start_dashboard_server
 
-console = Console(legacy_windows=False, width=135)
+console = Console(legacy_windows=False)
 
 
 def format_reset_time(iso_str: Optional[str]) -> str:
@@ -66,14 +66,14 @@ def print_status_table(as_json: bool = False) -> None:
         show_lines=True,
     )
 
-    table.add_column("Agent / Account", style="bold white", min_width=22)
-    table.add_column("Provider", style="cyan", justify="center", width=10)
-    table.add_column("5h Window", justify="center", width=14)
-    table.add_column("Time Remaining", justify="right", style="bold", width=16)
-    table.add_column("Next 5h Reset", justify="center", width=18)
-    table.add_column("5h Usage", justify="right", width=10)
-    table.add_column("Weekly Use", justify="right", style="dim", width=11)
-    table.add_column("Weekly Reset (Hrs & Date)", justify="left", style="cyan", width=30)
+    table.add_column("Agent / Account", style="bold white")
+    table.add_column("Provider", style="cyan", justify="center")
+    table.add_column("5h State", justify="center")
+    table.add_column("5h Left", justify="right", style="bold")
+    table.add_column("5h Reset", justify="center")
+    table.add_column("5h Use", justify="right")
+    table.add_column("Wk Use", justify="right", style="dim")
+    table.add_column("Weekly Reset", justify="left", style="cyan")
 
     for s in statuses:
         # Window State

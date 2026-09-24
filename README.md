@@ -72,12 +72,12 @@ A lightweight, local quota monitoring system and web dashboard designed for deve
            ▼                         ▼                         ▼
    ┌───────────────┐         ┌───────────────┐         ┌───────────────┐
    │ Claude (CCS)  │         │ OpenAI Codex  │         │ Google AGY    │
-   │ 3 Profiles    │         │ Background RPC│         │ CLI History   │
+   │ 3 Profiles    │         │ Background RPC│         │ /usage Command│
    └───────┬───────┘         └───────┬───────┘         └───────┬───────┘
            │                         │                         │
            ▼                         ▼                         ▼
-   Anthropic OAuth API       codex app-server        ~/.gemini/antigravity-cli/
-   api.anthropic.com         rateLimits/read               history.jsonl
+   Anthropic OAuth API       codex app-server        agy CLI /usage            
+   api.anthropic.com         rateLimits/read         JSON Quota Output
 ```
 
 ---
@@ -202,7 +202,7 @@ To make `agents` available from **any folder** in PowerShell without typing path
 ```powershell
 # AI Agents 5-Hour Quota Tracker & Dashboard
 function agents {
-    & "$HOME\path\to\agents_dashboard\agents.ps1" @args
+    & "$HOME\path\to\agent-quota-tracker\agents.ps1" @args
 }
 ```
 

@@ -40,8 +40,12 @@ def format_reset_time(iso_str: Optional[str]) -> str:
         return iso_str[:19] if iso_str else "N/A"
 
 
-def print_status_table() -> None:
+def print_status_table(as_json: bool = False) -> None:
     statuses = get_all_statuses()
+    if as_json:
+        import json
+        print(json.dumps([s.to_dict() for s in statuses], indent=2))
+        return
 
     table = Table(
         title="[bold cyan]⚡ AI Agents 5-Hour & Weekly Quota Status[/bold cyan]",
@@ -136,6 +140,11 @@ Examples:
 
     # Allow both flags and subcommands
     parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output raw quota status in JSON format (ideal for scripting and automation).",
+    )
+    parser.add_argument(
         "--status",
         "-s",
         action="store_true",
@@ -193,8 +202,8 @@ Examples:
     is_poke = args.poke or args.subcommand == "poke"
     is_dashboard = args.dashboard or args.cmd == "dashboard" if hasattr(args, "cmd") else (args.dashboard or args.subcommand == "dashboard")
 
-    if is_status:
-        print_status_table()
+    if is_status or args.json:
+        print_status_table(as_json=args.json)
     elif is_poke:
         run_poke(force=args.force, agent_id=args.agent)
     elif is_dashboard:

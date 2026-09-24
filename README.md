@@ -175,6 +175,34 @@ Spins up the local web dashboard at `http://localhost:5050` and automatically op
 
 ---
 
+### 4. `agents --status --json`
+Outputs raw machine-readable JSON status for all tracked accounts (ideal for custom status bars, polybars, tmux, and automation):
+
+```powershell
+.\agents.ps1 --status --json
+# Or with uv:
+uv run agents --json
+```
+
+**Sample Output:**
+```json
+[
+  {
+    "id": "agy",
+    "name": "Google Antigravity (AGY)",
+    "provider": "AGY",
+    "category": "personal",
+    "is_active": true,
+    "used_percent": 47.9,
+    "time_remaining_str": "3h 34m 10s",
+    "weekly_used_percent": 23.8,
+    "weekly_reset_str": "in 128.6h (Wed Sep 30, 08:47)"
+  }
+]
+```
+
+---
+
 ## ⚙️ Account Configuration
 
 Tracked accounts and display order are configured in `agents.config.json` (or `~/.agents_dashboard/config.json`). By default, personal accounts are grouped at the top, followed by work accounts:

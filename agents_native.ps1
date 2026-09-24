@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Pure PowerShell implementation to track and poke 5-hour rate limit windows across Claude (CCS), Codex, and AGY.
 
@@ -365,17 +365,17 @@ function Get-AgentData {
 
 function Show-StatusTable {
     Write-Host "`n⚡ AI AGENTS 5-HOUR & WEEKLY WINDOW QUOTA STATUS" -ForegroundColor Cyan
-    Write-Host ("=" * 126) -ForegroundColor DarkCyan
-    $header = "{0,-24} {1,-9} {2,-11} {3,-12} {4,-18} {5,-8} {6,-8} {7,-30}" -f "Agent / Account", "Provider", "5h State", "5h Left", "Next 5h Reset", "5h Use", "Wk Use", "Weekly Reset (Hours & Date)"
+    Write-Host ("=" * 110) -ForegroundColor DarkCyan
+    $header = "{0,-24} {1,-8} {2,-10} {3,-11} {4,-18} {5,-8} {6,-8} {7}" -f "Agent / Account", "Provider", "5h State", "5h Left", "5h Reset", "5h Use", "Wk Use", "Weekly Reset"
     Write-Host $header -ForegroundColor Yellow
-    Write-Host ("-" * 126) -ForegroundColor DarkGray
+    Write-Host ("-" * 110) -ForegroundColor DarkGray
     $data = Get-AgentData
     foreach ($a in $data) {
         $color = if ($a.IsActive) { "White" } else { "DarkGray" }
-        $line = "{0,-24} {1,-9} {2,-11} {3,-12} {4,-18} {5,-8} {6,-8} {7,-30}" -f $a.Name, $a.Provider, $a.State, $a.Remaining, $a.NextReset, $a.UsagePct, $a.WkUsage, $a.WeeklyReset
+        $line = "{0,-24} {1,-8} {2,-10} {3,-11} {4,-18} {5,-8} {6,-8} {7}" -f $a.Name, $a.Provider, $a.State, $a.Remaining, $a.NextReset, $a.UsagePct, $a.WkUsage, $a.WeeklyReset
         Write-Host $line -ForegroundColor $color
     }
-    Write-Host ("=" * 126 + "`n") -ForegroundColor DarkCyan
+    Write-Host ("=" * 110 + "`n") -ForegroundColor DarkCyan
 }
 
 if ($Json) {

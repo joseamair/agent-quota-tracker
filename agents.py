@@ -904,11 +904,11 @@ def print_status_table(as_json: bool = False) -> None:
         print(json.dumps([s.to_dict() for s in statuses], indent=2))
         return
 
-    print("\n" + "=" * 128)
+    print("\n" + "=" * 110)
     print("  ⚡ AI AGENTS 5-HOUR & WEEKLY WINDOW QUOTA STATUS")
-    print("=" * 128)
-    print(f"{'Agent / Account':<24} {'Provider':<9} {'5h State':<11} {'5h Left':<12} {'Next 5h Reset':<18} {'5h Use':<8} {'Wk Use':<8} {'Weekly Reset (Hours & Date)':<32}")
-    print("-" * 128)
+    print("=" * 110)
+    print(f"{'Agent / Account':<24} {'Provider':<8} {'5h State':<10} {'5h Left':<11} {'5h Reset':<18} {'5h Use':<8} {'Wk Use':<8} {'Weekly Reset':<20}")
+    print("-" * 110)
 
     for s in statuses:
         state_str = "● ACTIVE" if s.is_active else "○ INACTIVE"
@@ -925,9 +925,9 @@ def print_status_table(as_json: bool = False) -> None:
         wk_usage = f"{s.weekly_used_percent}%" if s.weekly_used_percent is not None else "-"
         wk_reset = s.weekly_reset_str
 
-        print(f"{s.name:<24} {s.provider:<9} {state_str:<11} {s.time_remaining_str:<12} {reset_str:<18} {usage_str:<8} {wk_usage:<8} {wk_reset:<32}")
+        print(f"{s.name:<24} {s.provider:<8} {state_str:<10} {s.time_remaining_str:<11} {reset_str:<18} {usage_str:<8} {wk_usage:<8} {wk_reset}")
 
-    print("=" * 128 + "\n")
+    print("=" * 110 + "\n")
 
 
 # ---------------------------------------------------------------------------

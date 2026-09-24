@@ -173,6 +173,9 @@ Spins up the local web dashboard at `http://localhost:5050` and automatically op
 .\agents_native.ps1 -Dashboard
 ```
 
+> **💡 Quick 1-Click Desktop Launcher**:  
+> Double-click `start-dashboard.cmd` directly from Windows Explorer or your desktop to start the dashboard server and open your browser instantly!
+
 ---
 
 ### 4. `agents --status --json`

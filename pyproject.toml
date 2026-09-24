@@ -37,6 +37,12 @@ dependencies = [
     "rich>=14.0.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/joseamair/agent-quota-tracker"
+Repository = "https://github.com/joseamair/agent-quota-tracker.git"
+Issues = "https://github.com/joseamair/agent-quota-tracker/issues"
+Changelog = "https://github.com/joseamair/agent-quota-tracker/blob/main/CHANGELOG.md"
+
 [project.scripts]
 agents = "agent_quota_tracker.cli:main"
 agent-quota-tracker = "agent_quota_tracker.cli:main"

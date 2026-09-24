@@ -12,6 +12,12 @@ param(
     [Alias("s")]
     [switch]$Status,
 
+    [Alias("j")]
+    [switch]$Json,
+
+    [Alias("w")]
+    [int]$Watch = 0,
+
     [Alias("p")]
     [switch]$Poke,
 
@@ -41,6 +47,8 @@ USAGE:
 OPTIONS:
   -Status, -s            Display live 5-hour rolling threshold window state, time remaining,
                          next reset time, 5h % usage, and weekly quota reset date.
+  -Json, -j              Output raw machine-readable JSON status for all accounts.
+  -Watch, -w [seconds]   Continuously refresh the status table every N seconds (default: 15s).
   -Poke, -p              Trigger a prompt on inactive accounts to start the 5h window.
                          Active accounts are automatically skipped to conserve quota.
   -Force, -f             When used with -Poke, forces a prompt even if window is already active.
@@ -59,7 +67,7 @@ EXAMPLES:
 }
 
 # Default to Status if no action switch passed
-if (-not $Status -and -not $Poke -and -not $Dashboard) {
+if (-not $Status -and -not $Poke -and -not $Dashboard -and -not $Json -and $Watch -eq 0 -and -not $PSBoundParameters.ContainsKey('Watch')) {
     $Status = $true
 }
 
@@ -355,7 +363,7 @@ function Get-AgentData {
     return $results
 }
 
-if ($Status) {
+function Show-StatusTable {
     Write-Host "`n⚡ AI AGENTS 5-HOUR & WEEKLY WINDOW QUOTA STATUS" -ForegroundColor Cyan
     Write-Host ("=" * 126) -ForegroundColor DarkCyan
     $header = "{0,-24} {1,-9} {2,-11} {3,-12} {4,-18} {5,-8} {6,-8} {7,-30}" -f "Agent / Account", "Provider", "5h State", "5h Left", "Next 5h Reset", "5h Use", "Wk Use", "Weekly Reset (Hours & Date)"
@@ -368,6 +376,31 @@ if ($Status) {
         Write-Host $line -ForegroundColor $color
     }
     Write-Host ("=" * 126 + "`n") -ForegroundColor DarkCyan
+}
+
+if ($Json) {
+    $data = Get-AgentData
+    $data | ConvertTo-Json -Depth 5
+    exit 0
+}
+
+if ($Watch -gt 0 -or $PSBoundParameters.ContainsKey('Watch')) {
+    $interval = if ($Watch -gt 0) { $Watch } else { 15 }
+    Write-Host "`n⚡ Live Quota Watch Mode enabled (refreshing every ${interval}s). Press Ctrl+C to exit.`n" -ForegroundColor Cyan
+    try {
+        while ($true) {
+            Clear-Host
+            Show-StatusTable
+            Start-Sleep -Seconds $interval
+        }
+    } catch {
+        Write-Host "`nWatch mode terminated.`n" -ForegroundColor DarkGray
+    }
+    exit 0
+}
+
+if ($Status) {
+    Show-StatusTable
 }
 
 if ($Poke) {

@@ -301,7 +301,7 @@ def get_claude_status(profile: str, display_name: str, category: str = "personal
 
 def extract_reply_snippet(output: str, max_chars: int = 120) -> str:
     """Extract a clean, readable one-line snippet from the agent's CLI output."""
-    if not output:
+    if not output or not output.strip():
         return "(no reply text captured)"
     output = output.replace("\u2018", "'").replace("\u2019", "'").replace("\u201c", '"').replace("\u201d", '"')
     lines = [line.strip() for line in output.splitlines() if line.strip()]
@@ -885,8 +885,12 @@ def run_poke_command(force: bool = False, agent_id: Optional[str] = None) -> Non
     print("\nDone!\n")
 
 
-def print_status_table() -> None:
+def print_status_table(as_json: bool = False) -> None:
     statuses = fetch_all_statuses()
+    if as_json:
+        import json
+        print(json.dumps([s.to_dict() for s in statuses], indent=2))
+        return
 
     print("\n" + "=" * 128)
     print("  ⚡ AI AGENTS 5-HOUR & WEEKLY WINDOW QUOTA STATUS")
@@ -1125,6 +1129,11 @@ Examples:
 """,
     )
     parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output raw quota status in JSON format (ideal for scripting and automation).",
+    )
+    parser.add_argument(
         "--status",
         "-s",
         action="store_true",
@@ -1176,8 +1185,8 @@ Examples:
     is_poke = args.poke or args.cmd == "poke"
     is_dashboard = args.dashboard or args.cmd == "dashboard"
 
-    if is_status:
-        print_status_table()
+    if is_status or args.json:
+        print_status_table(as_json=args.json)
     elif is_poke:
         run_poke_command(force=args.force, agent_id=args.agent)
     elif is_dashboard:

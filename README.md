@@ -33,6 +33,7 @@ A lightweight, local quota monitoring system and web dashboard designed for deve
 - [Frequently Asked Questions (FAQ)](#-frequently-asked-questions-faq)
 - [Security & Credential Privacy](#-security--credential-privacy)
 - [Contributing](#-contributing)
+- [Agent Handoff & Architecture Guide](HANDOFF.md)
 - [Changelog](#-changelog)
 - [License](#-license)
 
@@ -51,7 +52,7 @@ A lightweight, local quota monitoring system and web dashboard designed for deve
 > - **Multi-Account (`ccs`)**: By default, this dashboard tracks 3 distinct Claude profiles (`personal`, `work`, `work2`) using the [Claude Code Switcher (`ccs`)](https://github.com/joseamair/ccs) tool. Each profile keeps its own tokens in `~/.ccs/instances/<profile>`.
 > - **Standard Claude CLI**: If you don't use `ccs` and only have a single official Anthropic Claude installation (Windows, macOS, or Linux), the tracker seamlessly supports it out of the box! It reads credentials directly from `~/.claude/.credentials.json` (or `~/.claude.json`) and pokes using `claude -p` directly. Simply set `"profile": "default"` or omit the profile in `agents.config.json`.
 >
-> 📖 **Deep Dive**: For full technical details on agent quota mechanics, sliding window heuristics, and peak-time priming strategies, see [AGENTS.md](AGENTS.md).
+> 📖 **Deep Dive**: For full technical details on agent quota mechanics, sliding window heuristics, and peak-time priming strategies, see [AGENTS.md](AGENTS.md). For engineering guidelines, identity constraints, and context for incoming AI coding assistants, see [HANDOFF.md](HANDOFF.md).
 
 ---
 

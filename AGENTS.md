@@ -135,3 +135,9 @@ To automate this strategy without manual terminal loops, the following features 
 - **Zero Credential Transmission**: Tokens are read locally from standard credential paths (`~/.ccs/`, `~/.claude.json`, `~/.codex/`).
 - **Strict HTTPS Boundaries**: Network traffic is strictly confined to official provider endpoints (`api.anthropic.com`).
 - **No Third-Party Telemetry**: Quota tracking and status calculations run 100% locally.
+
+---
+
+## 7. Incoming Agent Handoff & Implementation Guide
+
+For technical architecture details, strict git identity rules (`joseamair`), test verification procedures, and the active task board for incoming AI coding agents, see [HANDOFF.md](HANDOFF.md).

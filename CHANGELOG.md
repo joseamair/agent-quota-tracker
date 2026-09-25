@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-09-25
+
+### Added
+- **Automated Poke Watchdog Mode (`--poke-watch`)** ([#18](https://github.com/joseamair/agent-quota-tracker/issues/18)):
+  - Continuous autonomous monitoring daemon that inspects 5-hour rolling windows and primes idle accounts automatically.
+  - Configurable polling interval via `--interval <duration>` (e.g. `15m`, `30m`, `2h`, `7200s`).
+  - **Adaptive Sleep Engine**: When no fixed interval is specified (or set to `auto`), dynamically sleeps until the earliest expiring active window plus safety margin (`min(remaining) + 45s`), eliminating CPU waste and API query spam.
+  - Live single-line terminal countdown timer with clean `Ctrl+C` interrupt handling and zero orphaned background processes.
+- **Scheduled Target-Time Morning Priming (`--poke-at`)** ([#19](https://github.com/joseamair/agent-quota-tracker/issues/19)):
+  - Executes a verified poke across idle agents at a scheduled 24-hour target time (`HH:MM`, e.g. `agents --poke-at 07:30`).
+  - Automatic overnight rollover if the specified target time is earlier in the day than current time.
+  - Strategic workday peak-quota maximization: primes windows early morning so full reset occurs during peak afternoon coding hours.
+- **Terminal Status Report Timestamp** ([#15](https://github.com/joseamair/agent-quota-tracker/issues/15)):
+  - Displays the exact local time the quota check was executed in the status table header.
+- **Official Claude Single-Account Support**:
+  - Out-of-the-box fallback to standard Anthropic Claude CLI (`~/.claude/.credentials.json`, `~/.claude.json`, and direct `claude -p` invocation) when Claude Code Switcher (CCS) is not installed or profile is `"default"`.
+- **Tri-Engine Parity**:
+  - Implemented `--poke-watch`, `--poke-at`, and `--interval` across the modular Python package, standalone single-file `agents.py`, and pure PowerShell `agents_native.ps1`.
+
+### Fixed
+- **Google Antigravity & OpenAI Codex Idle False Positives** ([#16](https://github.com/joseamair/agent-quota-tracker/issues/16)):
+  - Resolved false-positive active status on Codex and Antigravity when accounts are idle with 0% usage and sliding future reset timestamps.
+
 ---
 
 ## [1.0.0] - 2026-09-24

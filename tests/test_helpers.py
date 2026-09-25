@@ -77,3 +77,59 @@ def test_extract_reply_snippet_truncation():
     snippet = extract_reply_snippet(long_text, max_chars=50)
     assert len(snippet) == 50
     assert snippet.endswith("...")
+
+
+def test_parse_duration():
+    from agent_quota_tracker.trackers.base import parse_duration
+    assert parse_duration(None) is None
+    assert parse_duration("") is None
+    assert parse_duration("auto") is None
+    assert parse_duration(120) == 120
+    assert parse_duration("30m") == 1800
+    assert parse_duration("2h") == 7200
+    assert parse_duration("1h 30m") == 5400
+    assert parse_duration("45s") == 45
+    assert parse_duration("7200") == 7200
+    assert parse_duration("invalid_string") is None
+
+
+def test_parse_target_time():
+    from agent_quota_tracker.trackers.base import parse_target_time
+    # Mock current time as 09:00:00 today
+    mock_now = datetime(2026, 9, 25, 9, 0, 0)
+    
+    # Target in the future today (14:30)
+    target_dt, delta = parse_target_time("14:30", now_dt=mock_now)
+    assert target_dt == datetime(2026, 9, 25, 14, 30, 0)
+    assert delta == (5 * 3600) + (30 * 60)
+
+    # Target in the past today (07:30) -> should schedule for tomorrow
+    target_dt_tmr, delta_tmr = parse_target_time("07:30", now_dt=mock_now)
+    assert target_dt_tmr == datetime(2026, 9, 26, 7, 30, 0)
+    assert delta_tmr == (22 * 3600) + (30 * 60)
+
+    # Invalid time format raises ValueError
+    with pytest.raises(ValueError):
+        parse_target_time("invalid")
+    with pytest.raises(ValueError):
+        parse_target_time("25:00")
+
+
+def test_compute_adaptive_sleep_seconds():
+    from agent_quota_tracker.cli import compute_adaptive_sleep_seconds
+    from agent_quota_tracker.models import AgentStatus
+
+    # No active agents
+    s1 = AgentStatus(id="a1", name="A1", provider="p", is_active=False, used_percent=0.0)
+    s2 = AgentStatus(id="a2", name="A2", provider="p", is_active=False, used_percent=0.0)
+    sleep_secs, reason = compute_adaptive_sleep_seconds([s1, s2])
+    assert sleep_secs == 120
+    assert "idle" in reason.lower()
+
+    # Active agent with 1000s remaining
+    s3 = AgentStatus(id="a3", name="Claude Work", provider="p", is_active=True, used_percent=10.0, time_remaining_seconds=1000)
+    s4 = AgentStatus(id="a4", name="AGY", provider="p", is_active=True, used_percent=50.0, time_remaining_seconds=3000)
+    sleep_secs, reason = compute_adaptive_sleep_seconds([s1, s3, s4])
+    assert sleep_secs == 1000 + 45
+    assert "Claude Work" in reason
+

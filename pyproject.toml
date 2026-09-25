@@ -1,6 +1,6 @@
 [project]
 name = "agent-quota-tracker"
-version = "1.0.0"
+version = "1.1.0"
 description = "CLI tool and dashboard to monitor, track, and poke 5-hour rolling rate limit windows across Claude (CCS), OpenAI Codex, and Google Antigravity (AGY)."
 readme = "README.md"
 requires-python = ">=3.11"

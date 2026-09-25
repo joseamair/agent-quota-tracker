@@ -21,6 +21,15 @@ param(
     [Alias("p")]
     [switch]$Poke,
 
+    [Alias("pw")]
+    [switch]$PokeWatch,
+
+    [Alias("pa")]
+    [string]$PokeAt,
+
+    [Alias("i")]
+    [string]$Interval,
+
     [Alias("f")]
     [switch]$Force,
 
@@ -42,7 +51,7 @@ if ($Help) {
 Monitor rolling rate limit windows, track weekly resets, and poke AI accounts non-interactively.
 
 USAGE:
-  .\agents_native.ps1 [-Status] [-Poke] [-Force] [-TargetAgent <id>] [-Dashboard] [-Help]
+  .\agents_native.ps1 [-Status] [-Poke] [-PokeWatch] [-PokeAt <HH:MM>] [-Interval <dur>] [-Force] [-TargetAgent <id>] [-Dashboard] [-Help]
 
 OPTIONS:
   -Status, -s            Display live 5-hour rolling threshold window state, time remaining,
@@ -51,6 +60,9 @@ OPTIONS:
   -Watch, -w [seconds]   Continuously refresh the status table every N seconds (default: 15s).
   -Poke, -p              Trigger a prompt on inactive accounts to start the 5h window.
                          Active accounts are automatically skipped to conserve quota.
+  -PokeWatch, -pw        Start autonomous watchdog mode: continuously monitors and pokes idle agents.
+  -PokeAt, -pa <HH:MM>   Schedule an automated poke at a specific target time (e.g. 07:30 or 08:00).
+  -Interval, -i <dur>    Polling interval for -PokeWatch (e.g. 30m, 2h, or auto for adaptive sleep).
   -Force, -f             When used with -Poke, forces a prompt even if window is already active.
   -TargetAgent, -a <id>  Target a specific agent (e.g. work, personal, work2, codex, agy).
   -Dashboard, -d         Launch the local web dashboard at http://localhost:5050.
@@ -59,6 +71,8 @@ OPTIONS:
 EXAMPLES:
   .\agents_native.ps1 -Status
   .\agents_native.ps1 -Poke
+  .\agents_native.ps1 -PokeWatch -Interval 30m
+  .\agents_native.ps1 -PokeAt 07:30
   .\agents_native.ps1 -Poke -Force -TargetAgent work
   .\agents_native.ps1 -Dashboard
 
@@ -67,7 +81,7 @@ EXAMPLES:
 }
 
 # Default to Status if no action switch passed
-if (-not $Status -and -not $Poke -and -not $Dashboard -and -not $Json -and $Watch -eq 0 -and -not $PSBoundParameters.ContainsKey('Watch')) {
+if (-not $Status -and -not $Poke -and -not $PokeWatch -and -not $PokeAt -and -not $Dashboard -and -not $Json -and $Watch -eq 0 -and -not $PSBoundParameters.ContainsKey('Watch')) {
     $Status = $true
 }
 
@@ -259,16 +273,17 @@ function Get-AgentData {
             }
 
             $results += [PSCustomObject]@{
-                Id          = "agy"
-                Name        = $name
-                Provider    = "AGY"
-                IsActive    = $isActiveAgy
-                State       = if ($isActiveAgy) { "● ACTIVE" } else { "○ INACTIVE" }
-                Remaining   = $remStrAgy
-                NextReset   = $resetLocalAgy
-                UsagePct    = "$usedAgy%"
-                WkUsage     = $wkUsedAgy
-                WeeklyReset = $wkResetAgy
+                Id               = "agy"
+                Name             = $name
+                Provider         = "AGY"
+                IsActive         = $isActiveAgy
+                State            = if ($isActiveAgy) { "● ACTIVE" } else { "○ INACTIVE" }
+                Remaining        = $remStrAgy
+                RemainingSeconds = if ($isActiveAgy -and $remSpanAgy) { [int]$remSpanAgy.TotalSeconds } else { 0 }
+                NextReset        = $resetLocalAgy
+                UsagePct         = "$usedAgy%"
+                WkUsage          = $wkUsedAgy
+                WeeklyReset      = $wkResetAgy
             }
         }
         elseif ($prov -eq "codex") {
@@ -278,6 +293,7 @@ function Get-AgentData {
                 $isActiveCodex = [bool]$cObj.is_active
                 $usedCodex = [double]$cObj.used_percent
                 $remStrCodex = if ($cObj.time_remaining_str) { $cObj.time_remaining_str } else { "Inactive" }
+                $remSecsCodex = if ($cObj.time_remaining_seconds) { [int]$cObj.time_remaining_seconds } else { 0 }
                 $resetLocalCodex = "Ready to Poke"
                 if ($cObj.resets_at) {
                     $rUtc = [DateTime]::Parse($cObj.resets_at).ToUniversalTime()
@@ -287,20 +303,21 @@ function Get-AgentData {
                 $wkResetCodex = if ($cObj.weekly_reset_str) { $cObj.weekly_reset_str } else { "-" }
 
                 $results += [PSCustomObject]@{
-                    Id          = "codex"
-                    Name        = $name
-                    Provider    = "Codex"
-                    IsActive    = $isActiveCodex
-                    State       = if ($isActiveCodex) { "● ACTIVE" } else { "○ INACTIVE" }
-                    Remaining   = $remStrCodex
-                    NextReset   = $resetLocalCodex
-                    UsagePct    = "$([Math]::Round($usedCodex, 1))%"
-                    WkUsage     = $wkUsedCodex
-                    WeeklyReset = $wkResetCodex
+                    Id               = "codex"
+                    Name             = $name
+                    Provider         = "Codex"
+                    IsActive         = $isActiveCodex
+                    State            = if ($isActiveCodex) { "● ACTIVE" } else { "○ INACTIVE" }
+                    Remaining        = $remStrCodex
+                    RemainingSeconds = $remSecsCodex
+                    NextReset        = $resetLocalCodex
+                    UsagePct         = "$([Math]::Round($usedCodex, 1))%"
+                    WkUsage          = $wkUsedCodex
+                    WeeklyReset      = $wkResetCodex
                 }
             } catch {
                 $results += [PSCustomObject]@{
-                    Id = "codex"; Name = $name; Provider = "Codex"; IsActive = $false; State = "○ INACTIVE"; Remaining = "Inactive"; NextReset = "Ready to Poke"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"
+                    Id = "codex"; Name = $name; Provider = "Codex"; IsActive = $false; State = "○ INACTIVE"; Remaining = "Inactive"; RemainingSeconds = 0; NextReset = "Ready to Poke"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"
                 }
             }
         }
@@ -385,25 +402,26 @@ function Get-AgentData {
                     $wkReset = Format-WeeklyReset $sevenDay.resets_at
 
                     $results += [PSCustomObject]@{
-                        Id          = "claude-$prof"
-                        Name        = $name
-                        Provider    = "Claude"
-                        IsActive    = $isActive
-                        State       = if ($isActive) { "● ACTIVE" } else { "○ INACTIVE" }
-                        Remaining   = $remainingStr
-                        NextReset   = $resetLocal
-                        UsagePct    = "$([Math]::Round($used, 1))%"
-                        WkUsage     = $wkUsed
-                        WeeklyReset = $wkReset
+                        Id               = "claude-$prof"
+                        Name             = $name
+                        Provider         = "Claude"
+                        IsActive         = $isActive
+                        State            = if ($isActive) { "● ACTIVE" } else { "○ INACTIVE" }
+                        Remaining        = $remainingStr
+                        RemainingSeconds = if ($isActive -and $remSpan) { [int]$remSpan.TotalSeconds } else { 0 }
+                        NextReset        = $resetLocal
+                        UsagePct         = "$([Math]::Round($used, 1))%"
+                        WkUsage          = $wkUsed
+                        WeeklyReset      = $wkReset
                     }
                 } else {
                     $results += [PSCustomObject]@{
-                        Id = "claude-$prof"; Name = $name; Provider = "Claude"; IsActive = $false; State = "○ INACTIVE"; Remaining = "Inactive"; NextReset = "Ready to Poke"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"
+                        Id = "claude-$prof"; Name = $name; Provider = "Claude"; IsActive = $false; State = "○ INACTIVE"; Remaining = "Inactive"; RemainingSeconds = 0; NextReset = "Ready to Poke"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"
                     }
                 }
             } catch {
                 $results += [PSCustomObject]@{
-                    Id = "claude-$prof"; Name = $name; Provider = "Claude"; IsActive = $false; State = "ERROR"; Remaining = "-"; NextReset = "-"; UsagePct = "-"; WkUsage = "-"; WeeklyReset = "-"
+                    Id = "claude-$prof"; Name = $name; Provider = "Claude"; IsActive = $false; State = "ERROR"; Remaining = "-"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "-"; WkUsage = "-"; WeeklyReset = "-"
                 }
             }
         }
@@ -491,15 +509,58 @@ if ($Status) {
     Show-StatusTable
 }
 
-if ($Poke) {
-    $modeStr = if ($Force) { " (FORCE mode enabled)" } else { "" }
+function Convert-DurationToSeconds($str) {
+    if (-not $str -or $str -eq "auto") { return $null }
+    if ($str -match '^\d+$') { return [int]$str }
+    $h = 0; $m = 0; $s = 0
+    if ($str -match '(\d+)\s*h') { $h = [int]$Matches[1] }
+    if ($str -match '(\d+)\s*m') { $m = [int]$Matches[1] }
+    if ($str -match '(\d+)\s*s') { $s = [int]$Matches[1] }
+    $tot = ($h * 3600) + ($m * 60) + $s
+    if ($tot -gt 0) { return $tot }
+    return $null
+}
+
+function Get-TargetTimeInfo($timeStr) {
+    $parts = $timeStr.Trim().Split(":")
+    if ($parts.Length -lt 2) { throw "Invalid time format '$timeStr'. Expected HH:MM or HH:MM:SS in 24-hour format." }
+    $h = [int]$parts[0]
+    $m = [int]$parts[1]
+    $s = if ($parts.Length -ge 3) { [int]$parts[2] } else { 0 }
+    $now = Get-Date
+    $target = Get-Date -Hour $h -Minute $m -Second $s -Millisecond 0
+    if ($target -le $now) {
+        $target = $target.AddDays(1)
+    }
+    $delta = [int]($target - $now).TotalSeconds
+    return [PSCustomObject]@{ Target = $target; DeltaSeconds = $delta }
+}
+
+function Start-Countdown($totalSecs, $prefix) {
+    for ($rem = $totalSecs; $rem -gt 0; $rem--) {
+        $h = [math]::Floor($rem / 3600)
+        $m = [math]::Floor(($rem % 3600) / 60)
+        $s = $rem % 60
+        $durParts = @()
+        if ($h -gt 0) { $durParts += "${h}h" }
+        if ($m -gt 0) { $durParts += "${m}m" }
+        if ($s -gt 0 -or $durParts.Count -eq 0) { $durParts += "${s}s" }
+        $durStr = $durParts -join " "
+        Write-Host -NoNewline "`r  ⏳ $prefix : $durStr remaining • Press Ctrl+C to cancel   "
+        Start-Sleep -Seconds 1
+    }
+    Write-Host -NoNewline "`r                                                                                     `r"
+}
+
+function Invoke-PokeAgents($forceMode, $targetAgentId) {
+    $modeStr = if ($forceMode) { " (FORCE mode enabled)" } else { "" }
     Write-Host "`n⚡ [POKE] Checking 5-hour rolling threshold windows$modeStr...`n" -ForegroundColor Yellow
     $data = Get-AgentData
-    if ($TargetAgent -and $TargetAgent.Trim() -ne "") {
-        $target = $TargetAgent.Trim().ToLower()
+    if ($targetAgentId -and $targetAgentId.Trim() -ne "") {
+        $target = $targetAgentId.Trim().ToLower()
         $data = $data | Where-Object { $_.Id -eq $target -or $_.Id -eq "claude-$target" }
         if (-not $data) {
-            Write-Host "✖ Unknown agent ID '$TargetAgent'. Options: work, personal, work2, codex, agy`n" -ForegroundColor Red
+            Write-Host "✖ Unknown agent ID '$targetAgentId'. Options: work, personal, work2, codex, agy`n" -ForegroundColor Red
             return
         }
     }
@@ -507,12 +568,12 @@ if ($Poke) {
     foreach ($item in $data) {
         if (-not $item -or -not $item.Name) { continue }
 
-        if ($item.IsActive -and -not $Force) {
+        if ($item.IsActive -and -not $forceMode) {
             Write-Host "  ↷ SKIPPED: $($item.Name.PadRight(25)) Window already ACTIVE ($($item.Remaining) remaining, $($item.UsagePct) used)." -ForegroundColor DarkYellow
             continue
         }
 
-        $actionDesc = if ($item.IsActive -and $Force) { "Forcing poke" } else { "Window is inactive" }
+        $actionDesc = if ($item.IsActive -and $forceMode) { "Forcing poke" } else { "Window is inactive" }
         Write-Host "  ⏳ POKING:  $($item.Name.PadRight(25)) $actionDesc. Sending prompt & waiting for reply..." -ForegroundColor Cyan
 
         $replyText = ""
@@ -567,6 +628,89 @@ if ($Poke) {
         }
     }
     Write-Host "`nDone!`n"
+}
+
+if ($PokeAt) {
+    try {
+        $info = Get-TargetTimeInfo $PokeAt
+    } catch {
+        Write-Host "✖ Error: $_" -ForegroundColor Red
+        exit 1
+    }
+    $targetStr = $info.Target.ToString("yyyy-MM-dd HH:mm:ss")
+    $rel = if ($info.Target.Date -eq (Get-Date).Date) { "today" } else { "tomorrow" }
+    Write-Host "`n=================================================================================" -ForegroundColor Cyan
+    Write-Host "  ⚡ SCHEDULED PEAK-TIME PRIMING MODE" -ForegroundColor Cyan
+    Write-Host "  Target Execution: $targetStr ($rel)" -ForegroundColor White
+    Write-Host "  Strategic priming ensures 5-hour quota reset aligns with peak workday hours." -ForegroundColor DarkGray
+    Write-Host "  Press Ctrl+C to cancel schedule." -ForegroundColor DarkGray
+    Write-Host "=================================================================================`n" -ForegroundColor Cyan
+
+    try {
+        Start-Countdown $info.DeltaSeconds "Priming scheduled for $($info.Target.ToString('HH:mm:ss')) ($rel)"
+    } catch {
+        Write-Host "`n`n⚡ Scheduled poke cancelled by user.`n" -ForegroundColor Yellow
+        exit 0
+    }
+
+    Write-Host "`n⚡ Target time reached ($targetStr)! Initiating scheduled poke...`n" -ForegroundColor Green
+    Invoke-PokeAgents $Force $TargetAgent
+    Show-StatusTable
+
+    if ($PokeWatch) {
+        Write-Host "Transitioning into automated watchdog mode...`n" -ForegroundColor Cyan
+    } else {
+        exit 0
+    }
+}
+
+if ($PokeWatch) {
+    $fixedSecs = Convert-DurationToSeconds $Interval
+    $modeStr = if ($fixedSecs) { "fixed ${fixedSecs}s interval" } else { "adaptive window expiry mode" }
+    Write-Host "`n=================================================================================" -ForegroundColor Cyan
+    Write-Host "  ⚡ AUTONOMOUS POKE WATCHDOG STARTED" -ForegroundColor Cyan
+    Write-Host "  Running in $modeStr. Automatically primes 5h quota windows as accounts cool down." -ForegroundColor White
+    Write-Host "  Press Ctrl+C to terminate." -ForegroundColor DarkGray
+    Write-Host "=================================================================================`n" -ForegroundColor Cyan
+
+    $cycle = 1
+    try {
+        while ($true) {
+            $nowStr = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            Write-Host "▶ Watchdog Cycle #$cycle • $nowStr" -ForegroundColor Magenta
+            Invoke-PokeAgents $Force $TargetAgent
+
+            $sleepSecs = 120
+            $reason = "adaptive check"
+            if ($fixedSecs) {
+                $sleepSecs = $fixedSecs
+                $reason = "fixed ${fixedSecs}s"
+            } else {
+                $latestData = Get-AgentData
+                $activeWithRem = $latestData | Where-Object { $_.IsActive -and $_.RemainingSeconds -gt 0 }
+                if ($activeWithRem) {
+                    $earliest = ($activeWithRem | Sort-Object RemainingSeconds)[0]
+                    $sleepSecs = [math]::Max(60, $earliest.RemainingSeconds + 45)
+                    $reason = "$($earliest.Name) ($($earliest.Remaining) left)"
+                } else {
+                    $sleepSecs = 120
+                    $reason = "all agents idle or freshly checked"
+                }
+            }
+
+            $wakeTime = (Get-Date).AddSeconds($sleepSecs).ToString("HH:mm:ss")
+            Write-Host "Next check at $wakeTime ($reason)" -ForegroundColor Cyan
+            Start-Countdown $sleepSecs "Next check at $wakeTime"
+            $cycle++
+        }
+    } catch {
+        Write-Host "`n`n⚡ Poke watchdog mode stopped.`n" -ForegroundColor Yellow
+        exit 0
+    }
+}
+
+if ($Poke) {
+    Invoke-PokeAgents $Force $TargetAgent
 }
 
 if ($Dashboard) {

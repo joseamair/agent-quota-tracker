@@ -22,6 +22,11 @@ from rich.text import Text
 from agent_quota_tracker.core import get_all_statuses, poke_all
 from agent_quota_tracker.dashboard import start_dashboard_server
 from agent_quota_tracker.models import AgentStatus
+from agent_quota_tracker.trackers.base import (
+    format_duration,
+    parse_duration,
+    parse_target_time,
+)
 
 console = Console(legacy_windows=False)
 
@@ -288,6 +293,113 @@ def run_poke(force: bool = False, agent_id: Optional[str] = None) -> None:
     console.print()
 
 
+def compute_adaptive_sleep_seconds(statuses: list[AgentStatus]) -> tuple[int, str]:
+    """Computes intelligent sleep duration until the earliest active agent window expires."""
+    active_with_time = [
+        s for s in statuses
+        if s.is_active and s.time_remaining_seconds > 0
+    ]
+    if not active_with_time:
+        return 120, "All agents idle or freshly checked"
+
+    earliest = min(active_with_time, key=lambda s: s.time_remaining_seconds)
+    # Add a safety margin of 45 seconds so window has cleanly transitioned
+    sleep_secs = max(60, earliest.time_remaining_seconds + 45)
+    return sleep_secs, f"{earliest.name} ({format_duration(earliest.time_remaining_seconds)} left)"
+
+
+def run_countdown(total_seconds: int, prefix: str) -> None:
+    """Displays a ticking countdown line."""
+    import time
+    for rem in range(total_seconds, 0, -1):
+        sys.stdout.write(f"\r  ⏳ {prefix}: {format_duration(rem)} remaining • Press Ctrl+C to stop   ")
+        sys.stdout.flush()
+        time.sleep(1)
+    sys.stdout.write("\r" + " " * 85 + "\r")
+    sys.stdout.flush()
+
+
+def run_poke_watch_loop(
+    interval_arg: Optional[str] = None,
+    force: bool = False,
+    agent_id: Optional[str] = None,
+) -> None:
+    """Continuously runs the smart poke engine, priming idle accounts on an adaptive or fixed schedule."""
+    from datetime import timedelta
+    fixed_interval = parse_duration(interval_arg) if interval_arg else None
+    mode_str = f"fixed {format_duration(fixed_interval)} interval" if fixed_interval else "adaptive window expiry mode"
+    console.print(Panel(
+        f"[bold cyan]⚡ Autonomous Poke Watchdog Started[/bold cyan]\n"
+        f"[dim]Running in {mode_str}. Automatically primes 5h quota windows as accounts cool down.\n"
+        f"Press Ctrl+C to terminate.[/dim]"
+    ))
+
+    cycle = 1
+    try:
+        while True:
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            console.print(f"[bold magenta]▶ Watchdog Cycle #{cycle}[/bold magenta] [dim]• {now_str}[/dim]")
+            run_poke(force=force, agent_id=agent_id)
+
+            # Determine sleep time
+            if fixed_interval:
+                sleep_secs = fixed_interval
+                reason = f"fixed {format_duration(fixed_interval)}"
+            else:
+                statuses = get_all_statuses()
+                sleep_secs, reason = compute_adaptive_sleep_seconds(statuses)
+
+            wake_time = (datetime.now() + timedelta(seconds=sleep_secs)).strftime("%H:%M:%S")
+            console.print(f"[cyan]Next check at [bold]{wake_time}[/bold][/cyan] [dim]({reason})[/dim]")
+            run_countdown(sleep_secs, f"Next check at {wake_time}")
+            cycle += 1
+    except KeyboardInterrupt:
+        sys.stdout.write("\r" + " " * 85 + "\r")
+        sys.stdout.flush()
+        console.print("\n[bold yellow]⚡ Poke watchdog mode stopped.[/bold yellow]\n")
+
+
+def run_poke_at(
+    target_time_str: str,
+    and_watch: bool = False,
+    watch_interval: Optional[str] = None,
+    force: bool = False,
+    agent_id: Optional[str] = None,
+) -> None:
+    """Waits until a specific target time (e.g. 07:30) to prime quota windows before peak workday hours."""
+    try:
+        target_dt, delta_secs = parse_target_time(target_time_str)
+    except ValueError as e:
+        console.print(f"[bold red]✖ Error:[/bold red] {e}")
+        return
+
+    target_str = target_dt.strftime("%Y-%m-%d %H:%M:%S")
+    relative_day = "today" if target_dt.date() == datetime.now().date() else "tomorrow"
+
+    console.print(Panel(
+        f"[bold cyan]⚡ Scheduled Peak-Time Priming Mode[/bold cyan]\n"
+        f"[dim]Target Execution: [bold white]{target_str}[/bold white] ({relative_day})\n"
+        f"Strategic priming ensures 5-hour quota reset aligns with peak workday hours.\n"
+        f"Press Ctrl+C to cancel schedule.[/dim]"
+    ))
+
+    try:
+        run_countdown(delta_secs, f"Priming scheduled for {target_dt.strftime('%H:%M:%S')} ({relative_day})")
+    except KeyboardInterrupt:
+        sys.stdout.write("\r" + " " * 85 + "\r")
+        sys.stdout.flush()
+        console.print("\n[bold yellow]⚡ Scheduled poke cancelled by user.[/bold yellow]\n")
+        return
+
+    console.print(f"\n[bold green]⚡ Target time reached ({target_str})! Initiating scheduled poke...[/bold green]\n")
+    run_poke(force=force, agent_id=agent_id)
+    print_status_table()
+
+    if and_watch:
+        console.print("[dim]Transitioning into automated watchdog mode...[/dim]\n")
+        run_poke_watch_loop(interval_arg=watch_interval, force=force, agent_id=agent_id)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="⚡ AI Agents 5-Hour Window Tracker & Dashboard\n\nMonitor rolling rate limit windows, track weekly resets, and poke AI accounts non-interactively.",
@@ -298,6 +410,10 @@ Examples:
   agents --poke                  Poke all inactive accounts to trigger 5h countdowns
   agents --poke --force          Force poke all accounts even if currently active
   agents --poke -f -a work       Force poke only the Claude Work account
+  agents --poke-watch            Run autonomous watchdog to keep all windows primed
+  agents --poke-watch -i 30m     Run watchdog polling every 30 minutes
+  agents --poke-at 07:30         Prime windows at 07:30 AM before morning work begins
+  agents --poke-at 07:30 --watch Prime at 07:30 AM and continue in watchdog mode
   agents --dashboard             Launch live web dashboard at http://localhost:5050
   agents --dashboard --port 8080 Run dashboard web server on custom port 8080
 """,
@@ -329,6 +445,26 @@ Examples:
         "-p",
         action="store_true",
         help="Trigger a small prompt on inactive accounts to start the 5h window (skips already active agents).",
+    )
+    parser.add_argument(
+        "--poke-watch",
+        action="store_true",
+        help="Start automated watchdog mode: continuously monitors and pokes idle agents as 5h windows expire.",
+    )
+    parser.add_argument(
+        "--poke-at",
+        type=str,
+        default=None,
+        metavar="HH:MM",
+        help="Schedule an automated poke at a specific target time (e.g. 07:30 or 08:00) to optimize quota reset windows for peak workday hours.",
+    )
+    parser.add_argument(
+        "--interval",
+        "-i",
+        type=str,
+        default=None,
+        metavar="DURATION",
+        help="Polling interval for --poke-watch (e.g. 30m, 2h, or 'auto' for adaptive sleep until earliest agent reset).",
     )
     parser.add_argument(
         "--force",
@@ -365,8 +501,8 @@ Examples:
     parser.add_argument(
         "subcommand",
         nargs="?",
-        choices=["status", "poke", "dashboard"],
-        help="Optional positional subcommand alias for --status, --poke, or --dashboard",
+        choices=["status", "poke", "dashboard", "poke-watch"],
+        help="Optional positional subcommand alias for status, poke, dashboard, or poke-watch",
     )
 
     args = parser.parse_args()
@@ -374,9 +510,24 @@ Examples:
     # Determine command
     is_status = args.status or args.subcommand == "status"
     is_poke = args.poke or args.subcommand == "poke"
-    is_dashboard = args.dashboard or args.cmd == "dashboard" if hasattr(args, "cmd") else (args.dashboard or args.subcommand == "dashboard")
+    is_poke_watch = args.poke_watch or args.subcommand == "poke-watch"
+    is_dashboard = args.dashboard or (args.subcommand == "dashboard")
 
-    if args.watch is not None:
+    if args.poke_at:
+        run_poke_at(
+            target_time_str=args.poke_at,
+            and_watch=is_poke_watch or (args.watch is not None),
+            watch_interval=args.interval,
+            force=args.force,
+            agent_id=args.agent,
+        )
+    elif is_poke_watch:
+        run_poke_watch_loop(
+            interval_arg=args.interval,
+            force=args.force,
+            agent_id=args.agent,
+        )
+    elif args.watch is not None:
         run_watch_loop(interval=args.watch or 15)
     elif is_status or args.json:
         print_status_table(as_json=args.json)
@@ -387,7 +538,7 @@ Examples:
     else:
         # Default behavior: show status table and brief help
         print_status_table()
-        console.print("[dim]Use [bold]agents --status[/bold], [bold]agents --poke[/bold], or [bold]agents --dashboard[/bold] for specific actions.[/dim]\n")
+        console.print("[dim]Use [bold]agents --status[/bold], [bold]agents --poke[/bold], [bold]agents --poke-watch[/bold], or [bold]agents --dashboard[/bold] for specific actions.[/dim]\n")
 
 
 if __name__ == "__main__":

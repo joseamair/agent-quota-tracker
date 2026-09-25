@@ -1,10 +1,63 @@
 from __future__ import annotations
 
 import abc
-from datetime import datetime, timezone
+import re
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from agent_quota_tracker.models import AgentStatus, PokeResult
+
+
+def parse_duration(val: Optional[str | int]) -> Optional[int]:
+    """Parse duration like '30m', '2h', '90s', '1h30m', or integer seconds into total seconds."""
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return max(1, int(val))
+    s = str(val).strip().lower()
+    if not s or s == "auto":
+        return None
+    if s.isdigit():
+        return max(1, int(s))
+
+    pattern = r"(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?"
+    match = re.fullmatch(pattern, s)
+    if match and any(match.groups()):
+        h, m, sec = match.groups()
+        total = (int(h or 0) * 3600) + (int(m or 0) * 60) + int(sec or 0)
+        return max(1, total) if total > 0 else None
+    return None
+
+
+def parse_target_time(time_str: str, now_dt: Optional[datetime] = None) -> tuple[datetime, int]:
+    """Parses 'HH:MM' or 'HH:MM:SS' string into the next occurrence of that local time.
+    Returns (target_datetime, seconds_until_target).
+    If the time has already passed today, schedules for that time tomorrow.
+    """
+    if not time_str or not time_str.strip():
+        raise ValueError("Time string cannot be empty")
+    s = time_str.strip()
+    parts = s.split(":")
+    if len(parts) not in (2, 3):
+        raise ValueError(f"Invalid time format '{time_str}'. Expected HH:MM or HH:MM:SS in 24-hour format (e.g. 07:30 or 14:00).")
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+        second = int(parts[2]) if len(parts) == 3 else 0
+    except ValueError:
+        raise ValueError(f"Invalid non-numeric time '{time_str}'. Expected HH:MM or HH:MM:SS.")
+
+    if not (0 <= hour <= 23 and 0 <= minute <= 59 and 0 <= second <= 59):
+        raise ValueError(f"Time values out of range in '{time_str}'. Hour must be 0-23, minute/second 0-59.")
+
+    now = now_dt or datetime.now()
+    target = now.replace(hour=hour, minute=minute, second=second, microsecond=0)
+    if target <= now:
+        target += timedelta(days=1)
+
+    delta_secs = int((target - now).total_seconds())
+    return target, delta_secs
+
 
 
 def format_duration(seconds: int) -> str:

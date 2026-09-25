@@ -993,6 +993,152 @@ def run_watch_loop(interval: int = 15) -> None:
         print("\nWatch mode terminated.\n")
 
 
+def parse_duration(val: Optional[str | int]) -> Optional[int]:
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return max(1, int(val))
+    s = str(val).strip().lower()
+    if not s or s == "auto":
+        return None
+    if s.isdigit():
+        return max(1, int(s))
+    import re
+    pattern = r"(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?"
+    match = re.fullmatch(pattern, s)
+    if match and any(match.groups()):
+        h, m, sec = match.groups()
+        total = (int(h or 0) * 3600) + (int(m or 0) * 60) + int(sec or 0)
+        return max(1, total) if total > 0 else None
+    return None
+
+
+def parse_target_time(time_str: str, now_dt: Optional[datetime] = None) -> tuple[datetime, int]:
+    if not time_str or not time_str.strip():
+        raise ValueError("Time string cannot be empty")
+    s = time_str.strip()
+    parts = s.split(":")
+    if len(parts) not in (2, 3):
+        raise ValueError(f"Invalid time format '{time_str}'. Expected HH:MM or HH:MM:SS in 24-hour format.")
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+        second = int(parts[2]) if len(parts) == 3 else 0
+    except ValueError:
+        raise ValueError(f"Invalid non-numeric time '{time_str}'.")
+
+    if not (0 <= hour <= 23 and 0 <= minute <= 59 and 0 <= second <= 59):
+        raise ValueError(f"Time values out of range in '{time_str}'. Hour must be 0-23, minute/second 0-59.")
+
+    now = now_dt or datetime.now()
+    target = now.replace(hour=hour, minute=minute, second=second, microsecond=0)
+    if target <= now:
+        target += timedelta(days=1)
+
+    delta_secs = int((target - now).total_seconds())
+    return target, delta_secs
+
+
+def compute_adaptive_sleep_seconds(agents_info: list[AgentInfo]) -> tuple[int, str]:
+    active_with_time = [
+        a for a in agents_info
+        if a.is_active and a.time_remaining_seconds > 0
+    ]
+    if not active_with_time:
+        return 120, "All agents idle or freshly checked"
+
+    earliest = min(active_with_time, key=lambda a: a.time_remaining_seconds)
+    sleep_secs = max(60, earliest.time_remaining_seconds + 45)
+    return sleep_secs, f"{earliest.name} ({format_duration(earliest.time_remaining_seconds)} left)"
+
+
+def run_countdown(total_seconds: int, prefix: str) -> None:
+    import time
+    for rem in range(total_seconds, 0, -1):
+        sys.stdout.write(f"\r  ⏳ {prefix}: {format_duration(rem)} remaining • Press Ctrl+C to stop   ")
+        sys.stdout.flush()
+        time.sleep(1)
+    sys.stdout.write("\r" + " " * 85 + "\r")
+    sys.stdout.flush()
+
+
+def run_poke_watch_loop(
+    interval_arg: Optional[str] = None,
+    force: bool = False,
+    agent_id: Optional[str] = None,
+) -> None:
+    fixed_interval = parse_duration(interval_arg) if interval_arg else None
+    mode_str = f"fixed {format_duration(fixed_interval)} interval" if fixed_interval else "adaptive window expiry mode"
+    print(f"\n================================================================================================================================")
+    print(f"  ⚡ AUTONOMOUS POKE WATCHDOG STARTED")
+    print(f"  Running in {mode_str}. Automatically primes 5h quota windows as accounts cool down.")
+    print(f"  Press Ctrl+C to terminate.")
+    print(f"================================================================================================================================\n")
+
+    cycle = 1
+    try:
+        while True:
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print(f"▶ Watchdog Cycle #{cycle} • {now_str}")
+            run_poke_command(force=force, agent_id=agent_id)
+
+            if fixed_interval:
+                sleep_secs = fixed_interval
+                reason = f"fixed {format_duration(fixed_interval)}"
+            else:
+                agents_info = fetch_all_statuses()
+                sleep_secs, reason = compute_adaptive_sleep_seconds(agents_info)
+
+            wake_time = (datetime.now() + timedelta(seconds=sleep_secs)).strftime("%H:%M:%S")
+            print(f"Next check at {wake_time} ({reason})")
+            run_countdown(sleep_secs, f"Next check at {wake_time}")
+            cycle += 1
+    except KeyboardInterrupt:
+        sys.stdout.write("\r" + " " * 85 + "\r")
+        sys.stdout.flush()
+        print("\n⚡ Poke watchdog mode stopped.\n")
+
+
+def run_poke_at(
+    target_time_str: str,
+    and_watch: bool = False,
+    watch_interval: Optional[str] = None,
+    force: bool = False,
+    agent_id: Optional[str] = None,
+) -> None:
+    try:
+        target_dt, delta_secs = parse_target_time(target_time_str)
+    except ValueError as e:
+        print(f"✖ Error: {e}")
+        return
+
+    target_str = target_dt.strftime("%Y-%m-%d %H:%M:%S")
+    relative_day = "today" if target_dt.date() == datetime.now().date() else "tomorrow"
+
+    print(f"\n================================================================================================================================")
+    print(f"  ⚡ SCHEDULED PEAK-TIME PRIMING MODE")
+    print(f"  Target Execution: {target_str} ({relative_day})")
+    print(f"  Strategic priming ensures 5-hour quota reset aligns with peak workday hours.")
+    print(f"  Press Ctrl+C to cancel schedule.")
+    print(f"================================================================================================================================\n")
+
+    try:
+        run_countdown(delta_secs, f"Priming scheduled for {target_dt.strftime('%H:%M:%S')} ({relative_day})")
+    except KeyboardInterrupt:
+        sys.stdout.write("\r" + " " * 85 + "\r")
+        sys.stdout.flush()
+        print("\n⚡ Scheduled poke cancelled by user.\n")
+        return
+
+    print(f"\n⚡ Target time reached ({target_str})! Initiating scheduled poke...\n")
+    run_poke_command(force=force, agent_id=agent_id)
+    print_status_table()
+
+    if and_watch:
+        print("Transitioning into automated watchdog mode...\n")
+        run_poke_watch_loop(interval_arg=watch_interval, force=force, agent_id=agent_id)
+
+
 def print_status_table(as_json: bool = False) -> None:
     statuses = fetch_all_statuses()
     if as_json:
@@ -1273,6 +1419,10 @@ Examples:
   agents --poke                  Poke all inactive accounts to trigger 5h countdowns
   agents --poke --force          Force poke all accounts even if currently active
   agents --poke -f -a work       Force poke only the Claude Work account
+  agents --poke-watch            Run autonomous watchdog to keep all windows primed
+  agents --poke-watch -i 30m     Run watchdog polling every 30 minutes
+  agents --poke-at 07:30         Prime windows at 07:30 AM before morning work begins
+  agents --poke-at 07:30 --watch Prime at 07:30 AM and continue in watchdog mode
   agents --dashboard             Launch live web dashboard at http://localhost:5050
   agents --dashboard --port 8080 Run dashboard web server on custom port 8080
 """,
@@ -1304,6 +1454,26 @@ Examples:
         help="Poke inactive accounts to trigger 5h countdown (skips active accounts by default)",
     )
     parser.add_argument(
+        "--poke-watch",
+        action="store_true",
+        help="Start automated watchdog mode: continuously monitors and pokes idle agents as 5h windows expire",
+    )
+    parser.add_argument(
+        "--poke-at",
+        type=str,
+        default=None,
+        metavar="HH:MM",
+        help="Schedule an automated poke at a specific target time (e.g. 07:30 or 08:00) to optimize quota reset windows for peak workday hours",
+    )
+    parser.add_argument(
+        "--interval",
+        "-i",
+        type=str,
+        default=None,
+        metavar="DURATION",
+        help="Polling interval for --poke-watch (e.g. 30m, 2h, or 'auto' for adaptive sleep until earliest agent reset)",
+    )
+    parser.add_argument(
         "--force",
         "-f",
         action="store_true",
@@ -1333,17 +1503,32 @@ Examples:
     parser.add_argument(
         "cmd",
         nargs="?",
-        choices=["status", "poke", "dashboard"],
-        help="Optional positional command alias ('status', 'poke', 'dashboard')",
+        choices=["status", "poke", "dashboard", "poke-watch"],
+        help="Optional positional command alias ('status', 'poke', 'dashboard', 'poke-watch')",
     )
 
     args = parser.parse_args()
 
     is_status = args.status or args.cmd == "status"
     is_poke = args.poke or args.cmd == "poke"
+    is_poke_watch = args.poke_watch or args.cmd == "poke-watch"
     is_dashboard = args.dashboard or args.cmd == "dashboard"
 
-    if args.watch is not None:
+    if args.poke_at:
+        run_poke_at(
+            target_time_str=args.poke_at,
+            and_watch=is_poke_watch or (args.watch is not None),
+            watch_interval=args.interval,
+            force=args.force,
+            agent_id=args.agent,
+        )
+    elif is_poke_watch:
+        run_poke_watch_loop(
+            interval_arg=args.interval,
+            force=args.force,
+            agent_id=args.agent,
+        )
+    elif args.watch is not None:
         run_watch_loop(interval=args.watch or 15)
     elif is_status or args.json:
         print_status_table(as_json=args.json)
@@ -1353,7 +1538,7 @@ Examples:
         start_dashboard(port=args.port)
     else:
         print_status_table()
-        print("Run with: --status, --poke, or --dashboard\n")
+        print("Run with: --status, --poke, --poke-watch, or --dashboard\n")
 
 
 if __name__ == "__main__":

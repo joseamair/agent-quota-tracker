@@ -99,26 +99,26 @@ For software engineers working full workdays, **when** you start your 5-hour win
 
 ## 5. Roadmap Architecture: Autonomous Watchdog & Target-Time Scheduling
 
-To automate this strategy without manual terminal loops, the following two features are in active development:
+To automate this strategy without manual terminal loops, the following features have been implemented and released in **v1.1.0**:
 
-### Feature 1: Automated Poke Watchdog Mode (`--poke-watch`)
+### Feature 1: Automated Poke Watchdog Mode (`--poke-watch`) [DELIVERED - v1.1.0]
 - **Tracking Issue**: [#18](https://github.com/joseamair/agent-quota-tracker/issues/18)
 - **Command**: `agents --poke-watch [--interval <duration>]`
 - **Architecture**:
   - Replaces fragile shell loops (`while ($true) { agents --poke; Start-Sleep ... }`).
-  - **Adaptive Sleep Engine**: Computes $\Delta t = \min(\text{active\_windows\_remaining}) + 60\text{s}$. If Claude Work expires in 22 minutes, the watchdog sleeps for 23 minutes, immediately waking up to prime the account the moment it turns idle.
-  - Interactive Rich terminal UI displaying ticking countdown to next check and last action log.
+  - **Adaptive Sleep Engine**: Computes $\Delta t = \min(\text{active\_windows\_remaining}) + 45\text{s}$. If Claude Work expires in 22 minutes, the watchdog sleeps for ~23 minutes, immediately waking up to prime the account the moment it turns idle.
+  - Interactive terminal UI displaying ticking countdown to next check and last action log.
   - Clean interrupt handling (`Ctrl+C`) with zero orphaned background processes.
 
-### Feature 2: Scheduled Target-Time Morning Priming (`--poke-at`)
+### Feature 2: Scheduled Target-Time Morning Priming (`--poke-at`) [DELIVERED - v1.1.0]
 - **Tracking Issue**: [#19](https://github.com/joseamair/agent-quota-tracker/issues/19)
 - **Command**: `agents --poke-at HH:MM` (e.g., `agents --poke-at 07:30`)
 - **Architecture**:
   - Accepts a 24-hour target time (`HH:MM`).
   - Automatically calculates overnight delta if target time is the next morning.
   - Displays a clean sleeping countdown until target execution.
-  - At target time, executes a verified poke across all idle accounts, prints the status report, and optionally transitions into `--poke-watch`.
-  - Includes helper script/command to register a persistent scheduled task via Windows Task Scheduler or cron.
+  - At target time, executes a verified poke across all idle accounts, prints the status report, and exits cleanly.
+  - Native cross-platform support across Python, standalone runner, and pure PowerShell (`agents_native.ps1`).
 
 ---
 

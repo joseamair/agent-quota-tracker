@@ -143,20 +143,9 @@ Displays a formatted status table across all accounts:
 .\agents_native.ps1 -Status
 ```
 
-**Sample Output:**
-```text
-================================================================================================================================
-  ⚡ AI AGENTS 5-HOUR & WEEKLY WINDOW QUOTA STATUS
-================================================================================================================================
-Agent / Account          Provider  5h State    5h Left      Next 5h Reset      5h Use   Wk Use   Weekly Reset (Hours & Date)     
---------------------------------------------------------------------------------------------------------------------------------
-Google Antigravity (AGY) AGY       ● ACTIVE    4h 07m 51s   03:44:28 (Today)   30.5%    20.6%    in 129.2h (Wed Sep 30, 08:47)   
-OpenAI Codex             Codex     ● ACTIVE    1h 47m 02s   01:23:40 (Today)   50.0%    71.0%    in 82.5h (Mon Sep 28, 10:07)    
-Claude (Personal)        Claude    ● ACTIVE    1h 43m 22s   01:20:00 (Today)   0.0%     74.0%    in 96.4h (Tue Sep 29, 00:00)    
-Claude (Work)            Claude    ● ACTIVE    1h 43m 21s   01:19:59 (Today)   28.0%    42.0%    in 61.4h (Sun Sep 27, 12:59)    
-Claude (Work2)           Claude    ● ACTIVE    4h 33m 21s   04:10:00 (Today)   1.0%     53.0%    in 93.4h (Mon Sep 28, 21:00)    
-================================================================================================================================
-```
+<p align="center">
+  <img src="assets/screenshots/terminal-status.png" alt="AI Agents 5-Hour & Weekly Quota Status Terminal Table" width="900" />
+</p>
 
 ---
 
@@ -180,16 +169,9 @@ Inspects 5-hour rolling threshold windows. Inactive accounts are poked with a li
 .\agents_native.ps1 -Poke -Force -TargetAgent codex
 ```
 
-**Sample Output:**
-```text
-⚡ [POKE] Checking 5-hour rolling threshold windows (FORCE mode enabled)...
-
-  ⏳ POKING:  Claude (Work)             Forcing poke. Sending prompt & waiting for reply...
-  ✔ SUCCESS: Claude (Work)             Verified ACTIVE (4h 42m 40s remaining, 5.0% used)
-             ↳ Reply: "Doing well, thanks! I'm ready to work on your agents dashboard project."
-
-Done!
-```
+<p align="center">
+  <img src="assets/screenshots/terminal-poke.png" alt="agents --poke Terminal Output" width="900" />
+</p>
 
 ---
 
@@ -242,6 +224,10 @@ Spins up the local web dashboard at `http://localhost:5050` and automatically op
 
 > **💡 Quick 1-Click Desktop Launcher**:  
 > Double-click `start-dashboard.cmd` directly from Windows Explorer or your desktop to start the dashboard server and open your browser instantly!
+
+<p align="center">
+  <img src="assets/screenshots/dashboard.png" alt="AI Agents Quota Tracker Web Dashboard" width="900" />
+</p>
 
 ---
 
@@ -323,6 +309,16 @@ agents --status
 agents --poke
 agents --dashboard
 ```
+
+---
+
+## 🖥️ Web Dashboard Preview
+
+The embedded dashboard runs locally at `http://localhost:5050`, featuring real-time glassmorphism status cards, active countdown rings, and manual poke triggers:
+
+<p align="center">
+  <img src="assets/screenshots/dashboard.png" alt="AI Agents Quota Tracker Web Dashboard Preview" width="900" />
+</p>
 
 ---
 

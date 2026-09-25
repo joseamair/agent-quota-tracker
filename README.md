@@ -163,6 +163,12 @@ Claude (Work2)           Claude    ● ACTIVE    4h 33m 21s   04:10:00 (Today)  
 ### 2. `agents --poke` (`-p`)
 Inspects 5-hour rolling threshold windows. Inactive accounts are poked with a light prompt to initiate their window; active accounts are skipped automatically.
 
+<p align="center">
+  <img src="assets/screenshots/poke-cat.gif" alt="Poking the agent" width="260" />
+  <br>
+  <em>"Wake up, agent! Time to start the 5-hour quota window." — Gently waking up dormant accounts before peak coding hours.</em>
+</p>
+
 ```powershell
 # Poke all inactive accounts:
 .\agents.ps1 --poke

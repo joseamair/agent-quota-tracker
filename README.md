@@ -25,6 +25,9 @@ A lightweight, local quota monitoring system and web dashboard designed for deve
   - [`agents --status --watch`](#5-agents---status---watch--w)
 - [Global PowerShell Integration](#-global-powershell-integration)
 - [Web Dashboard Preview](#-web-dashboard-preview)
+- [Linux & macOS Compatibility & Setup Guide](#-linux--macos-compatibility--setup-guide)
+- [Project Roadmap](#-project-roadmap)
+- [Frequently Asked Questions (FAQ)](#-frequently-asked-questions-faq)
 - [Security & Credential Privacy](#-security--credential-privacy)
 - [Contributing](#-contributing)
 - [Changelog](#-changelog)
@@ -41,6 +44,8 @@ A lightweight, local quota monitoring system and web dashboard designed for deve
 | **Claude (Personal)** | Anthropic | CCS profile `personal` | Instant live OAuth Usage API (`api.anthropic.com`) |
 | **Claude (Work)** | Anthropic | CCS profile `work` | Instant live OAuth Usage API (`api.anthropic.com`) |
 | **Claude (Work2)** | Anthropic | CCS profile `work2` | Instant live OAuth Usage API (`api.anthropic.com`) |
+
+> 📖 **Deep Dive**: For full technical details on agent quota mechanics, sliding window heuristics, and peak-time priming strategies, see [AGENTS.md](AGENTS.md).
 
 ---
 
@@ -152,6 +157,9 @@ Inspects 5-hour rolling threshold windows. Inactive accounts are poked with a li
 # With native PowerShell:
 .\agents_native.ps1 -Poke -Force -TargetAgent codex
 ```
+
+> [!TIP]
+> **Upcoming Roadmap Capabilities**: Automated watchdog mode (`agents --poke-watch`, [#18](https://github.com/joseamair/agent-quota-tracker/issues/18)) and target-time morning priming (`agents --poke-at HH:MM`, [#19](https://github.com/joseamair/agent-quota-tracker/issues/19)) are currently tracked in the [Project Roadmap](#-project-roadmap).
 
 **Sample Output:**
 ```text
@@ -298,6 +306,21 @@ Provider credentials and configurations are mapped automatically from your stand
 ---
 
 ## 🗺️ Project Roadmap
+
+### 🎯 Active Development & Upcoming Features
+
+- [ ] **Automated Poke Watchdog Mode (`--poke-watch`)** ([#18](https://github.com/joseamair/agent-quota-tracker/issues/18)):
+  Continuous background/foreground watchdog daemon that monitors agent quota windows and automatically pokes idle accounts.
+  - Supports configurable polling intervals (e.g. `--interval 30m` or `--interval 2h`).
+  - **Adaptive Sleep Engine**: Intelligently sleeps until the earliest active agent window expires (plus safety margin) rather than burning CPU or unnecessary API queries.
+  - Interactive terminal status with live countdown, error backoff, and graceful `Ctrl+C` termination.
+- [ ] **Scheduled Target-Time Poke (`--poke-at`)** ([#19](https://github.com/joseamair/agent-quota-tracker/issues/19)):
+  Trigger an automated poke at a specific planned time (e.g. `agents --poke-at 07:30`) to strategically prime 5-hour rolling threshold windows before peak workday hours.
+  - Guarantees the initial 5-hour window resets right around midday peak coding hours (e.g. 12:30 PM), effectively unlocking a double-quota during your highest-intensity work period.
+  - Automatic overnight clock rollover and countdown display.
+  - Optional Windows Task Scheduler / cron integration for permanent unattended daily priming.
+
+### 🔭 Future Capabilities
 
 - [ ] **Additional Assistant Support**: Trackers for Cursor, Windsurf, GitHub Copilot CLI, and Aider.
 - [ ] **Desktop Toast Notifications**: Windows & Linux desktop notifications when an inactive 5-hour window cools down and is ready to poke.

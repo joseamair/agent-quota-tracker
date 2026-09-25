@@ -320,15 +320,32 @@ function Get-AgentData {
                     $remainingStr = "Inactive"
                     $resetLocal = "Ready to Poke"
 
+                    $hasFreshPoke = $false
+                    $statePath = Join-Path $HOME ".agents_dashboard\state.json"
+                    if (Test-Path $statePath) {
+                        try {
+                            $st = Get-Content $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
+                            $pStr = $st."claude-$prof".last_poked_at
+                            if ($pStr) {
+                                $pUtc = [DateTime]::Parse($pStr).ToUniversalTime()
+                                $diffSec = ($nowUtc - $pUtc).TotalSeconds
+                                if ($diffSec -ge 0 -and $diffSec -lt 600) { $hasFreshPoke = $true }
+                            }
+                        } catch {}
+                    }
+                    $isIdle = ($used -eq 0.0 -and -not $hasFreshPoke)
+
                     if ($resetsStr) {
                         $resetsUtc = [DateTime]::Parse($resetsStr).ToUniversalTime()
-                        if ($resetsUtc -gt $nowUtc) {
+                        if ($resetsUtc -gt $nowUtc -and -not $isIdle) {
                             $isActive = $true
                             $remSpan = $resetsUtc - $nowUtc
                             $remainingStr = Format-Remaining $remSpan
                             $resetLocal = $resetsUtc.ToLocalTime().ToString("HH:mm:ss") + " (Today)"
                         } else {
                             $used = 0.0
+                            $remainingStr = "Inactive"
+                            $resetLocal = "Ready to Poke"
                         }
                     }
 

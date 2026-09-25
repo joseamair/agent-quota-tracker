@@ -7,5 +7,6 @@ Place your terminal screenshots and UI captures in this directory so they can be
 - **`terminal-watchdog.png`**: Screenshot of `agents --poke-watch` showing the countdown timer and watchdog cycle.
 - **`terminal-poke.png`**: Screenshot of `agents --poke` showing active verification and model replies.
 - **`dashboard-preview.png`**: Screenshot of the local web dashboard (`http://localhost:5050`) showing glassmorphism cards and SVG rings.
+- **`poke-dog.gif`**: Playful GIF of someone gently poking a dog to wake it up (featured in the Smart Poke section!).
 
 Format: PNG or WebP recommended.

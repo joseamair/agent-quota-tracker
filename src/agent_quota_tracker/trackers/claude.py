@@ -145,20 +145,32 @@ class ClaudeTracker(BaseTracker):
         is_active = False
         remaining_seconds = 0
 
-        if resets_at_dt is not None:
-            if resets_at_dt > now:
-                is_active = True
-                remaining_seconds = max(0, int((resets_at_dt - now).total_seconds()))
-                status_label = "Active"
-            else:
-                # 5-hour window has elapsed
-                is_active = False
-                remaining_seconds = 0
-                status_label = "Inactive (Ready to Poke)"
-                used_pct = 0.0
+        # Check if idle:
+        # Anthropic provides static prospective 5-hour time slots (resets_at)
+        # even when an account has 0.0% utilization and has not been used.
+        # It is only active if quota has been used or if a fresh poke occurred within 10 minutes.
+        has_fresh_poke = False
+        if last_poked_at:
+            try:
+                p_dt = parse_iso_datetime(last_poked_at)
+                if p_dt and 0 <= (now - p_dt).total_seconds() < 600:
+                    has_fresh_poke = True
+            except Exception:
+                pass
+
+        is_idle = (used_pct == 0.0 and not has_fresh_poke)
+
+        if resets_at_dt is not None and resets_at_dt > now and not is_idle:
+            is_active = True
+            remaining_seconds = max(0, int((resets_at_dt - now).total_seconds()))
+            status_label = "Active"
         else:
-            status_label = "Inactive (No window active)"
+            is_active = False
+            remaining_seconds = 0
+            status_label = "Inactive (Ready to Poke)"
             used_pct = 0.0
+            resets_at_str = None
+            resets_at_dt = None
 
         # Weekly stats
         weekly_used_pct = float(seven_day.get("utilization")) if seven_day.get("utilization") is not None else None

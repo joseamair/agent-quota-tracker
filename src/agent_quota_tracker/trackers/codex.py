@@ -130,22 +130,33 @@ class CodexTracker(BaseTracker):
         remaining_seconds = 0
         resets_at_str = None
 
-        if resets_at_ts is not None:
-            resets_dt = datetime.fromtimestamp(resets_at_ts, tz=timezone.utc)
-            resets_at_str = resets_dt.isoformat()
+        # Inactivity / sliding window check:
+        # When Codex is idle, its app-server dynamically returns resetsAt = now + 300 minutes.
+        # It is only active if quota has been consumed (used_pct > 0)
+        # or if a fresh poke was made within 10 minutes.
+        has_fresh_poke = False
+        if last_poked_at:
+            try:
+                p_dt = datetime.fromisoformat(last_poked_at.replace("Z", "+00:00"))
+                if 0 <= (now_ts - p_dt.timestamp()) < 600:
+                    has_fresh_poke = True
+            except Exception:
+                pass
 
-            if resets_at_ts > now_ts:
-                is_active = True
-                remaining_seconds = max(0, int(resets_at_ts - now_ts))
-                status_label = "Active"
-            else:
-                is_active = False
-                remaining_seconds = 0
-                status_label = "Inactive (Ready to Poke)"
-                used_pct = 0.0
+        is_sliding_idle = (used_pct == 0.0 and not has_fresh_poke and resets_at_ts is not None and (resets_at_ts - now_ts) >= (window_mins * 60 - 30))
+
+        if resets_at_ts is not None and resets_at_ts > now_ts and not is_sliding_idle:
+            is_active = True
+            remaining_seconds = max(0, int(resets_at_ts - now_ts))
+            resets_at_str = datetime.fromtimestamp(resets_at_ts, tz=timezone.utc).isoformat()
+            status_label = "Active"
         else:
-            status_label = "Inactive (No window active)"
+            is_active = False
+            remaining_seconds = 0
+            status_label = "Inactive (Ready to Poke)"
             used_pct = 0.0
+            resets_at_str = None
+            resets_at_ts = None
 
         # Weekly stats
         weekly_used_pct = float(secondary.get("usedPercent")) if secondary.get("usedPercent") is not None else None

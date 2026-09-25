@@ -269,13 +269,28 @@ def get_claude_status(profile: str, display_name: str, category: str = "personal
     is_active = False
     remaining_secs = 0
 
-    if resets_dt and resets_dt > now:
+    agent_st = load_state().get(f"claude-{profile}", {})
+    last_poked_at = agent_st.get("last_poked_at")
+    has_recent_poke = False
+    if last_poked_at:
+        try:
+            p_dt = parse_iso(last_poked_at)
+            if p_dt and 0 <= (now - p_dt).total_seconds() < 600:
+                has_recent_poke = True
+        except Exception:
+            pass
+
+    is_idle = (used_pct == 0.0 and not has_recent_poke)
+
+    if resets_dt and resets_dt > now and not is_idle:
         is_active = True
         remaining_secs = int((resets_dt - now).total_seconds())
         label = "Active"
     else:
         is_active = False
+        remaining_secs = 0
         used_pct = 0.0
+        resets_at_str = None
         label = "Inactive (Ready to Poke)"
 
     weekly_pct = float(seven_day.get("utilization")) if seven_day.get("utilization") is not None else None
@@ -447,13 +462,27 @@ def get_codex_status(display_name: str = "OpenAI Codex", category: str = "person
 
     resets_at_ts = primary.get("resetsAt")
     used_pct = float(primary.get("usedPercent") or 0.0)
+    window_mins = int(primary.get("windowDurationMins") or 300)
     now_ts = time.time()
 
     is_active = False
     remaining_secs = 0
     resets_at_str = None
 
-    if resets_at_ts and resets_at_ts > now_ts:
+    agent_st = load_state().get("codex", {})
+    last_poked_at = agent_st.get("last_poked_at")
+    has_recent_poke = False
+    if last_poked_at:
+        try:
+            p_dt = parse_iso(last_poked_at)
+            if p_dt and 0 <= (now_ts - p_dt.timestamp()) < 600:
+                has_recent_poke = True
+        except Exception:
+            pass
+
+    is_sliding_idle = (used_pct == 0.0 and not has_recent_poke and resets_at_ts is not None and (resets_at_ts - now_ts) >= (window_mins * 60 - 30))
+
+    if resets_at_ts and resets_at_ts > now_ts and not is_sliding_idle:
         is_active = True
         remaining_secs = int(resets_at_ts - now_ts)
         resets_at_str = datetime.fromtimestamp(resets_at_ts, tz=timezone.utc).isoformat()
@@ -461,6 +490,8 @@ def get_codex_status(display_name: str = "OpenAI Codex", category: str = "person
     else:
         is_active = False
         used_pct = 0.0
+        remaining_secs = 0
+        resets_at_str = None
         label = "Inactive (Ready to Poke)"
 
     weekly_pct = float(secondary.get("usedPercent")) if secondary.get("usedPercent") is not None else None

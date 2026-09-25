@@ -120,3 +120,11 @@ def test_build_status_table_all_tiers():
     col_names_mini = [col.header for col in t_mini.columns]
     assert len(col_names_mini) == 5
     assert "Agent" in col_names_mini
+
+
+def test_build_status_table_timestamp():
+    from agent_quota_tracker.cli import build_status_table
+    table = build_status_table([], term_w=120, timestamp_str="2026-09-25 12:34:56")
+    assert "2026-09-25 12:34:56" in table.title
+    assert "Checked:" in table.title
+

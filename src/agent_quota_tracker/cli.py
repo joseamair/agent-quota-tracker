@@ -63,13 +63,28 @@ def run_watch_loop(interval: int = 15) -> None:
         console.print("\n[dim]Watch mode terminated.[/dim]\n")
 
 
-def build_status_table(statuses: list[AgentStatus], term_w: Optional[int] = None) -> Table:
+def build_status_table(
+    statuses: list[AgentStatus],
+    term_w: Optional[int] = None,
+    timestamp_str: Optional[str] = None,
+) -> Table:
     """Builds a rich Table dynamically scaled to current CLI terminal width."""
     if term_w is None:
         term_w = get_terminal_width()
 
+    now_dt = datetime.now()
+    if timestamp_str is None:
+        timestamp_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    if term_w >= 110:
+        title = f"[bold cyan]⚡ AI Agents 5-Hour & Weekly Quota Status[/bold cyan]  [dim]•  Checked: {timestamp_str}[/dim]"
+    elif term_w >= 75:
+        title = f"[bold cyan]⚡ AI Agents Quotas[/bold cyan]  [dim]•  {timestamp_str}[/dim]"
+    else:
+        title = f"[bold cyan]⚡ Quotas[/bold cyan]  [dim]•  {now_dt.strftime('%H:%M:%S')}[/dim]"
+
     table = Table(
-        title="[bold cyan]⚡ AI Agents 5-Hour & Weekly Quota Status[/bold cyan]",
+        title=title,
         header_style="bold magenta",
         border_style="bright_blue",
         show_lines=False,

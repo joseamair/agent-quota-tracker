@@ -168,7 +168,22 @@ class AGYTracker(BaseTracker):
                 used_pct = round(max(0.0, (1.0 - rem_frac) * 100), 1)
                 r_time = b_5h.get("reset_time")
                 r_dt = parse_iso_datetime(r_time)
-                if r_dt and r_dt > now:
+                # Idle check: When AGY has 100% remaining quota (used_pct == 0.0),
+                # its /usage API reports a prospective sliding reset_time = now + 5 hours.
+                # It is only active if quota has been consumed (used_pct > 0)
+                # or if a fresh poke was made within 10 minutes.
+                has_fresh_poke = False
+                if last_poked_at:
+                    try:
+                        p_dt = parse_iso_datetime(last_poked_at)
+                        if p_dt and 0 <= (now - p_dt).total_seconds() < 600:
+                            has_fresh_poke = True
+                    except Exception:
+                        pass
+
+                is_idle = (used_pct == 0.0 and not has_fresh_poke)
+
+                if r_dt and r_dt > now and not is_idle:
                     is_active = True
                     remaining_seconds = max(0, int((r_dt - now).total_seconds()))
                     resets_at_str = r_dt.isoformat()
@@ -180,6 +195,8 @@ class AGYTracker(BaseTracker):
                     used_percent = 0.0
                     remaining_seconds = 0
                     status_label = "Inactive (Ready to Poke)"
+                    resets_at_str = None
+                    resets_at_ts = None
 
             # Weekly quota
             weekly_used_pct = None

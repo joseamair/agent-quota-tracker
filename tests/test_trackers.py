@@ -195,3 +195,89 @@ def test_standalone_agents_py_claude_idle():
             assert st.used_percent == 0.0
             assert st.resets_at is None
 
+
+def test_agy_idle_zero_usage():
+    from agent_quota_tracker.trackers.agy import AGYTracker
+    tracker = AGYTracker()
+    future_reset = (datetime.now(timezone.utc) + timedelta(hours=5)).isoformat()
+    mock_data = {
+        "groups": [
+            {
+                "name": "Gemini Models",
+                "buckets": [
+                    {
+                        "id": "gemini-5h",
+                        "window": "5h",
+                        "remaining_fraction": 1.0,
+                        "reset_time": future_reset,
+                    }
+                ],
+            }
+        ]
+    }
+    with patch.object(tracker, "_fetch_live_quota", return_value=mock_data):
+        with patch("agent_quota_tracker.trackers.agy.get_agent_state", return_value={"last_poked_at": None}):
+            status = tracker.get_status()
+            assert status.is_active is False
+            assert status.status_label == "Inactive (Ready to Poke)"
+            assert status.used_percent == 0.0
+            assert status.resets_at is None
+            assert status.time_remaining_seconds == 0
+
+
+def test_agy_active_with_usage():
+    from agent_quota_tracker.trackers.agy import AGYTracker
+    tracker = AGYTracker()
+    future_reset = (datetime.now(timezone.utc) + timedelta(hours=3)).isoformat()
+    mock_data = {
+        "groups": [
+            {
+                "name": "Gemini Models",
+                "buckets": [
+                    {
+                        "id": "gemini-5h",
+                        "window": "5h",
+                        "remaining_fraction": 0.85,
+                        "reset_time": future_reset,
+                    }
+                ],
+            }
+        ]
+    }
+    with patch.object(tracker, "_fetch_live_quota", return_value=mock_data):
+        with patch("agent_quota_tracker.trackers.agy.get_agent_state", return_value={}):
+            status = tracker.get_status()
+            assert status.is_active is True
+            assert status.status_label == "Active"
+            assert status.used_percent == 15.0
+            assert status.resets_at is not None
+            assert status.time_remaining_seconds > 0
+
+
+def test_agy_active_after_fresh_poke():
+    from agent_quota_tracker.trackers.agy import AGYTracker
+    tracker = AGYTracker()
+    future_reset = (datetime.now(timezone.utc) + timedelta(hours=5)).isoformat()
+    mock_data = {
+        "groups": [
+            {
+                "name": "Gemini Models",
+                "buckets": [
+                    {
+                        "id": "gemini-5h",
+                        "window": "5h",
+                        "remaining_fraction": 1.0,
+                        "reset_time": future_reset,
+                    }
+                ],
+            }
+        ]
+    }
+    recent_poke = (datetime.now(timezone.utc) - timedelta(seconds=90)).isoformat()
+    with patch.object(tracker, "_fetch_live_quota", return_value=mock_data):
+        with patch("agent_quota_tracker.trackers.agy.get_agent_state", return_value={"last_poked_at": recent_poke}):
+            status = tracker.get_status()
+            assert status.is_active is True
+            assert status.status_label == "Active"
+
+

@@ -638,12 +638,26 @@ def get_agy_status(display_name: str = "Google Antigravity (AGY)", category: str
         used_pct = 0.0
         label = "Inactive (Ready to Poke)"
 
+        agent_st = load_state().get("agy", {})
+        last_poked_at = agent_st.get("last_poked_at")
+        has_fresh_poke = False
+        if last_poked_at:
+            try:
+                p_dt = parse_iso(last_poked_at)
+                if p_dt and 0 <= (now.timestamp() - p_dt.timestamp()) < 600:
+                    has_fresh_poke = True
+            except Exception:
+                pass
+
         if b_5h:
             rem_frac = float(b_5h.get("remaining_fraction", 1.0))
             used_pct = round(max(0.0, (1.0 - rem_frac) * 100), 1)
             r_time = b_5h.get("reset_time")
             r_dt = parse_iso(r_time)
-            if r_dt and r_dt > now:
+
+            is_idle = (used_pct == 0.0 and not has_fresh_poke)
+
+            if r_dt and r_dt > now and not is_idle:
                 is_active = True
                 remaining_secs = max(0, int((r_dt - now).total_seconds()))
                 resets_at_str = r_dt.isoformat()
@@ -652,6 +666,7 @@ def get_agy_status(display_name: str = "Google Antigravity (AGY)", category: str
                 is_active = False
                 used_pct = 0.0
                 remaining_secs = 0
+                resets_at_str = None
                 label = "Inactive (Ready to Poke)"
 
         weekly_used_pct = None
@@ -940,10 +955,13 @@ def print_status_table(as_json: bool = False) -> None:
     except Exception:
         term_w = 110
 
+    now_dt = datetime.now()
+    now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+
     if term_w >= 120:
         bar_len = 110
         print("\n" + "=" * bar_len)
-        print("  ⚡ AI AGENTS 5-HOUR & WEEKLY WINDOW QUOTA STATUS")
+        print(f"  ⚡ AI AGENTS 5-HOUR & WEEKLY WINDOW QUOTA STATUS  •  Checked: {now_str}")
         print("=" * bar_len)
         print(f"{'Agent / Account':<24} {'Provider':<8} {'5h State':<10} {'5h Left':<11} {'5h Reset':<18} {'5h Use':<8} {'Wk Use':<8} {'Weekly Reset'}")
         print("-" * bar_len)
@@ -968,7 +986,7 @@ def print_status_table(as_json: bool = False) -> None:
         # Compact view for narrower terminals (< 120 cols)
         bar_len = 80
         print("\n" + "=" * bar_len)
-        print("  ⚡ AI AGENTS QUOTA STATUS")
+        print(f"  ⚡ AI AGENTS QUOTA STATUS  •  Checked: {now_dt.strftime('%H:%M:%S')}")
         print("=" * bar_len)
         print(f"{'Agent':<14} {'State':<10} {'Left':<9} {'Reset':<7} {'5h%':<6} {'Wk%':<6} {'Weekly'}")
         print("-" * bar_len)

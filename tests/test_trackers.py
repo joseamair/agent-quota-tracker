@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 import time
 from datetime import datetime, timezone, timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from agent_quota_tracker.trackers.codex import CodexTracker
 from agent_quota_tracker.trackers.claude import ClaudeTracker
@@ -279,5 +280,49 @@ def test_agy_active_after_fresh_poke():
             status = tracker.get_status()
             assert status.is_active is True
             assert status.status_label == "Active"
+
+
+def test_claude_standard_installation_fallback(tmp_path):
+    # Simulates a system without CCS, but with ~/.claude/.credentials.json
+    tracker = ClaudeTracker("default")
+    creds_file = tmp_path / ".credentials.json"
+    creds_file.write_text(json.dumps({"claudeAiOauth": {"accessToken": "test_tok"}}))
+    json_file = tmp_path / ".claude.json"
+    json_file.write_text(json.dumps({
+        "cachedUsageUtilization": {
+            "utilization": {
+                "five_hour": {
+                    "utilization": 12.0,
+                    "resets_at": (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
+                },
+                "seven_day": None,
+            }
+        }
+    }))
+
+    with patch.object(tracker, "_get_creds_path", return_value=creds_file):
+        with patch.object(tracker, "_get_json_path", return_value=json_file):
+            with patch.object(tracker, "_fetch_live_usage", return_value=None):
+                status = tracker.get_status()
+                assert status.is_active is True
+                assert status.used_percent == 12.0
+                assert status.status_label == "Active"
+
+
+def test_claude_poke_uses_claude_bin_when_ccs_absent():
+    tracker = ClaudeTracker("default")
+    with patch.object(tracker, "get_status") as mock_status:
+        mock_status.return_value = MagicMock(is_active=False)
+        with patch("shutil.which") as mock_which:
+            # ccs is absent, claude is present
+            mock_which.side_effect = lambda name: "C:\\bin\\claude.exe" if "claude" in name else None
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(stdout="Hi from claude CLI!", stderr="")
+                res = tracker.poke()
+                assert mock_run.called
+                args = mock_run.call_args[0][0]
+                assert "claude" in args[0]
+                assert "-p" in args
+
 
 

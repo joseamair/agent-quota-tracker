@@ -308,6 +308,18 @@ function Get-AgentData {
             $prof = if ($acc.profile) { $acc.profile } else { $aid }
             $jsonPath = Join-Path $HOME ".ccs\instances\$prof\.claude.json"
             $credsPath = Join-Path $HOME ".ccs\instances\$prof\.credentials.json"
+
+            # Fallback to standard Claude CLI installation if CCS path does not exist
+            if (-not (Test-Path $credsPath)) {
+                $stdCreds1 = Join-Path $HOME ".claude\.credentials.json"
+                $stdCreds2 = Join-Path $HOME ".credentials.json"
+                if (Test-Path $stdCreds1) { $credsPath = $stdCreds1 }
+                elseif (Test-Path $stdCreds2) { $credsPath = $stdCreds2 }
+            }
+            if (-not (Test-Path $jsonPath)) {
+                $stdJson = Join-Path $HOME ".claude.json"
+                if (Test-Path $stdJson) { $jsonPath = $stdJson }
+            }
             try {
                 $fiveHour = $null
                 $sevenDay = $null
@@ -508,7 +520,17 @@ if ($Poke) {
         try {
             if ($item.Id -like "claude-*") {
                 $prof = $item.Id.Replace("claude-", "")
-                $out = $null | ccs $prof -p "Hello, how are you doing?" 2>&1
+                $ccsDir = Join-Path $HOME ".ccs\instances\$prof"
+                $hasCcs = (Get-Command ccs -ErrorAction SilentlyContinue) -and (Test-Path $ccsDir)
+                if ($hasCcs -and $prof -notin @("", "default", "system")) {
+                    $out = $null | ccs $prof -p "Hello, how are you doing?" 2>&1
+                } elseif (Get-Command claude -ErrorAction SilentlyContinue) {
+                    $out = $null | claude -p "Hello, how are you doing?" 2>&1
+                } elseif (Get-Command ccs -ErrorAction SilentlyContinue) {
+                    $out = $null | ccs $prof -p "Hello, how are you doing?" 2>&1
+                } else {
+                    throw "Neither CCS (ccs) nor standard Claude CLI (claude) found in PATH."
+                }
                 $rawOutput = $out -join "`n"
             } elseif ($item.Id -eq "codex") {
                 $out = $null | codex exec "Hello, how are you doing?" --ephemeral --skip-git-repo-check --color never 2>&1

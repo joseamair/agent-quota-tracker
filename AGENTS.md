@@ -25,9 +25,20 @@ This document provides a comprehensive technical overview of the AI coding agent
 |---|---|---|---|
 | **Google Antigravity (AGY)** | Google | CLI subshell (`agy`) | Local CLI query: `agy -p "/usage" --output-format json` |
 | **OpenAI Codex** | OpenAI | Local JSON-RPC Daemon (`codex`) | App-server RPC request: `account/rateLimits/read` |
-| **Claude (Personal)** | Anthropic | CCS (`~/.ccs/instances/personal`) | Direct HTTPS OAuth: `api.anthropic.com/api/oauth/usage` |
-| **Claude (Work)** | Anthropic | CCS (`~/.ccs/instances/work`) | Direct HTTPS OAuth: `api.anthropic.com/api/oauth/usage` |
-| **Claude (Work2)** | Anthropic | CCS (`~/.ccs/instances/work2`) | Direct HTTPS OAuth: `api.anthropic.com/api/oauth/usage` |
+| **Claude (Multi-Account via CCS)** | Anthropic | CCS (`~/.ccs/instances/<profile>`) | Direct HTTPS OAuth: `api.anthropic.com/api/oauth/usage` |
+| **Claude (Standard Single-Account)** | Anthropic | Official CLI (`~/.claude/`) | Direct HTTPS OAuth with fallback to `claude -p` |
+
+### Claude Integration Modes: CCS vs Standard CLI
+1. **Multi-Account Mode (`ccs`)**:
+   - Engineered for developers juggling multiple Anthropic Claude accounts (e.g., personal vs. work).
+   - Powered by the [Claude Code Switcher (`ccs`)](https://github.com/joseamair/ccs) utility.
+   - Credentials and cached states reside under `~/.ccs/instances/<profile>/.credentials.json` and `.claude.json`.
+   - The default configuration of this repository tracks 5 accounts: AGY, Codex, and 3 CCS profiles (`personal`, `work`, `work2`).
+2. **Standard Single-Account Mode (Official Claude CLI)**:
+   - For environments with a single official Anthropic Claude CLI installation on Windows (`claude.exe`), Linux, or macOS.
+   - Automatically discovers credentials from `~/.claude/.credentials.json` (or `~/.claude.json`).
+   - If CCS is not installed or the profile is omitted/set to `"default"`, the smart poke engine invokes `claude -p "Hello, how are you doing?"` directly.
+   - **Token Refresh**: If the stored OAuth token has expired (`401 OAuth access token has expired`), running `claude login` refreshes the token in `~/.claude/.credentials.json`.
 
 ---
 
@@ -59,7 +70,7 @@ Each provider operates on a **5-hour rolling threshold window**:
 The poke engine (`agents --poke`) safely primes dormant 5-hour quota windows without exhausting expensive generation limits:
 1. **Window Guard**: Inspects current active states; active accounts are immediately skipped to preserve token economy.
 2. **Lightweight Invocation**:
-   - Anthropic Claude: Dispatches `claude -p "Hello, how are you doing?"` with `stdin=DEVNULL`.
+   - Anthropic Claude: Dispatches `ccs <profile> -p "Hello, how are you doing?"` (or `claude -p` for standard single-account setups) with `stdin=DEVNULL`.
    - OpenAI Codex: Dispatches non-interactive query via `codex exec`.
    - Google Antigravity: Dispatches non-interactive query via `agy prompt`.
 3. **Response Verification**: Waits for the model to reply, extracts a single-line summary (e.g. `↳ Reply: "I am doing well, ready to help..."`), and instantly re-queries the provider usage API to confirm the 5-hour window is live.

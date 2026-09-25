@@ -36,11 +36,16 @@ def parse_iso_datetime(dt_str: str) -> Optional[datetime]:
 class ClaudeTracker(BaseTracker):
     def __init__(self, profile_name: str, display_name: Optional[str] = None, category: str = "personal"):
         self.profile = profile_name
-        self._display_name = display_name or f"Claude ({profile_name})"
+        self._display_name = display_name or (
+            f"Claude ({profile_name})" if profile_name and profile_name not in ("default", "system") else "Claude"
+        )
         self._category = category
         self.home = Path(os.path.expanduser("~"))
-        self.instance_dir = self.home / ".ccs" / "instances" / profile_name
-        self.claude_json_path = self.instance_dir / ".claude.json"
+        if self.profile and self.profile not in ("default", "system"):
+            self.instance_dir: Optional[Path] = self.home / ".ccs" / "instances" / profile_name
+        else:
+            self.instance_dir = None
+        self.claude_json_path = (self.instance_dir / ".claude.json") if self.instance_dir else (self.home / ".claude.json")
 
     @property
     def agent_id(self) -> str:
@@ -54,10 +59,38 @@ class ClaudeTracker(BaseTracker):
     def provider(self) -> str:
         return "claude"
 
+    def _get_creds_path(self) -> Optional[Path]:
+        """Finds credentials, checking CCS instance first, then standard Claude installation paths."""
+        if self.instance_dir and self.instance_dir.exists():
+            p = self.instance_dir / ".credentials.json"
+            if p.exists() and p.is_file():
+                return p
+        # Fallback to standard Claude CLI locations (Windows / Linux / macOS)
+        candidates = [
+            self.home / ".claude" / ".credentials.json",
+            self.home / ".claude.json",
+            self.home / ".credentials.json",
+        ]
+        for c in candidates:
+            if c.exists() and c.is_file():
+                return c
+        return None
+
+    def _get_json_path(self) -> Optional[Path]:
+        """Finds cached .claude.json, checking CCS instance first, then standard path."""
+        if self.instance_dir and self.instance_dir.exists():
+            p = self.instance_dir / ".claude.json"
+            if p.exists() and p.is_file():
+                return p
+        fallback = self.home / ".claude.json"
+        if fallback.exists() and fallback.is_file():
+            return fallback
+        return None
+
     def _fetch_live_usage(self) -> Optional[dict[str, Any]]:
         try:
-            creds_path = self.instance_dir / ".credentials.json"
-            if not creds_path.exists():
+            creds_path = self._get_creds_path()
+            if not creds_path or not creds_path.exists():
                 return None
             creds = json.loads(creds_path.read_text(encoding="utf-8"))
             token = creds.get("claudeAiOauth", {}).get("accessToken")
@@ -69,7 +102,7 @@ class ClaudeTracker(BaseTracker):
                 "https://api.anthropic.com/api/oauth/usage",
                 headers={
                     "Authorization": f"Bearer {token}",
-                    "User-Agent": "claude-code/2.1.281",
+                    "User-Agent": "claude-code/2.1.282",
                     "Accept": "application/json",
                 },
             )
@@ -78,15 +111,16 @@ class ClaudeTracker(BaseTracker):
                     data = json.loads(resp.read().decode("utf-8"))
                     # Update local .claude.json cache
                     try:
-                        if self.claude_json_path.exists():
-                            cj = json.loads(self.claude_json_path.read_text(encoding="utf-8"))
+                        target_json = self._get_json_path() or self.claude_json_path
+                        if target_json and target_json.exists():
+                            cj = json.loads(target_json.read_text(encoding="utf-8"))
                             import time
                             cj["cachedUsageUtilization"] = {
                                 "fetchedAtMs": int(time.time() * 1000),
                                 "accountUuid": creds.get("claudeAiOauth", {}).get("accountUuid"),
                                 "utilization": data,
                             }
-                            self.claude_json_path.write_text(json.dumps(cj, indent=2), encoding="utf-8")
+                            target_json.write_text(json.dumps(cj, indent=2), encoding="utf-8")
                     except Exception:
                         pass
                     return data
@@ -103,12 +137,13 @@ class ClaudeTracker(BaseTracker):
         seven_day = {}
         cached_usage = {}
 
+        json_path = self._get_json_path()
         if live_data:
             five_hour = live_data.get("five_hour") or {}
             seven_day = live_data.get("seven_day") or {}
-        elif self.claude_json_path.exists():
+        elif json_path and json_path.exists():
             try:
-                raw_text = self.claude_json_path.read_text(encoding="utf-8")
+                raw_text = json_path.read_text(encoding="utf-8")
                 data = json.loads(raw_text)
                 cached_usage = data.get("cachedUsageUtilization", {})
                 utilization = cached_usage.get("utilization", {})
@@ -134,7 +169,7 @@ class ClaudeTracker(BaseTracker):
                 used_percent=0.0,
                 status_label="Not initialized",
                 last_poked_at=last_poked_at,
-                error=f"Profile directory not found: {self.instance_dir}",
+                error=f"Claude credentials or config not found for profile: {self.profile}",
             )
 
         used_pct = float(five_hour.get("utilization") or 0.0)
@@ -220,16 +255,28 @@ class ClaudeTracker(BaseTracker):
             )
 
         ccs_bin = shutil.which("ccs") or shutil.which("ccs.cmd")
-        if not ccs_bin:
+        claude_bin = shutil.which("claude") or shutil.which("claude.exe") or shutil.which("claude.cmd")
+
+        use_ccs = (
+            bool(self.profile and self.profile not in ("", "default", "system"))
+            and self.instance_dir is not None
+            and self.instance_dir.exists()
+            and ccs_bin is not None
+        )
+
+        if use_ccs:
+            cmd = [ccs_bin, self.profile, "-p", prompt]
+        elif claude_bin:
+            cmd = [claude_bin, "-p", prompt]
+        elif ccs_bin and self.profile:
+            cmd = [ccs_bin, self.profile, "-p", prompt]
+        else:
             return PokeResult(
                 agent_id=self.agent_id,
                 agent_name=self.display_name,
                 action_taken="error",
-                message="CCS command (ccs) not found in system PATH.",
+                message="Neither CCS (ccs) nor standard Claude CLI (claude) found in system PATH.",
             )
-
-        # Run non-interactive print turn: ccs <profile> -p "<prompt>"
-        cmd = [ccs_bin, self.profile, "-p", prompt]
         try:
             res = subprocess.run(
                 cmd,

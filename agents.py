@@ -177,12 +177,49 @@ class AgentInfo:
 
 import urllib.request
 
+def get_claude_paths(profile: str) -> tuple[Optional[Path], Optional[Path]]:
+    """Returns (creds_path, json_path) for Claude, checking CCS instances then standard installation."""
+    home = Path(os.path.expanduser("~"))
+    creds_path: Optional[Path] = None
+    json_path: Optional[Path] = None
+
+    if profile and profile not in ("", "default", "system"):
+        inst_dir = home / ".ccs" / "instances" / profile
+        if inst_dir.exists():
+            c = inst_dir / ".credentials.json"
+            if c.exists():
+                creds_path = c
+            j = inst_dir / ".claude.json"
+            if j.exists():
+                json_path = j
+
+    if not creds_path:
+        for cand in [
+            home / ".claude" / ".credentials.json",
+            home / ".claude.json",
+            home / ".credentials.json",
+        ]:
+            if cand.exists() and cand.is_file():
+                creds_path = cand
+                break
+
+    if not json_path:
+        for cand in [
+            home / ".claude.json",
+            home / ".claude" / "settings.json",
+        ]:
+            if cand.exists() and cand.is_file():
+                json_path = cand
+                break
+
+    return creds_path, json_path
+
+
 def fetch_live_claude_usage(profile: str) -> Optional[dict[str, Any]]:
     """Query Anthropic API directly with profile credentials for instantaneous live data."""
     try:
-        home = Path(os.path.expanduser("~"))
-        creds_path = home / ".ccs" / "instances" / profile / ".credentials.json"
-        if not creds_path.exists():
+        creds_path, json_path = get_claude_paths(profile)
+        if not creds_path or not creds_path.exists():
             return None
         creds = json.loads(creds_path.read_text(encoding="utf-8"))
         token = creds.get("claudeAiOauth", {}).get("accessToken")
@@ -193,7 +230,7 @@ def fetch_live_claude_usage(profile: str) -> Optional[dict[str, Any]]:
             "https://api.anthropic.com/api/oauth/usage",
             headers={
                 "Authorization": f"Bearer {token}",
-                "User-Agent": "claude-code/2.1.281",
+                "User-Agent": "claude-code/2.1.282",
                 "Accept": "application/json",
             },
         )
@@ -202,15 +239,14 @@ def fetch_live_claude_usage(profile: str) -> Optional[dict[str, Any]]:
                 data = json.loads(resp.read().decode("utf-8"))
                 # Write back to disk cache so other tools and offline runs have updated data
                 try:
-                    claude_json_path = home / ".ccs" / "instances" / profile / ".claude.json"
-                    if claude_json_path.exists():
-                        cj = json.loads(claude_json_path.read_text(encoding="utf-8"))
+                    if json_path and json_path.exists():
+                        cj = json.loads(json_path.read_text(encoding="utf-8"))
                         cj["cachedUsageUtilization"] = {
                             "fetchedAtMs": int(time.time() * 1000),
                             "accountUuid": creds.get("claudeAiOauth", {}).get("accountUuid"),
                             "utilization": data,
                         }
-                        claude_json_path.write_text(json.dumps(cj, indent=2), encoding="utf-8")
+                        json_path.write_text(json.dumps(cj, indent=2), encoding="utf-8")
                 except Exception:
                     pass
                 return data
@@ -220,8 +256,7 @@ def fetch_live_claude_usage(profile: str) -> Optional[dict[str, Any]]:
 
 
 def get_claude_status(profile: str, display_name: str, category: str = "personal") -> AgentInfo:
-    home = Path(os.path.expanduser("~"))
-    claude_json = home / ".ccs" / "instances" / profile / ".claude.json"
+    creds_path, claude_json = get_claude_paths(profile)
 
     # 1. Try live API fetch first for real-time instantaneous status
     live_data = fetch_live_claude_usage(profile)
@@ -232,7 +267,7 @@ def get_claude_status(profile: str, display_name: str, category: str = "personal
     if live_data:
         five_hour = live_data.get("five_hour") or {}
         seven_day = live_data.get("seven_day") or {}
-    elif claude_json.exists():
+    elif claude_json and claude_json.exists():
         try:
             data = json.loads(claude_json.read_text(encoding="utf-8"))
             cached_u = data.get("cachedUsageUtilization", {}).get("utilization", {})
@@ -257,7 +292,7 @@ def get_claude_status(profile: str, display_name: str, category: str = "personal
             is_active=False,
             used_percent=0.0,
             status_label="Profile not found",
-            error=f"Missing {claude_json}",
+            error=f"Credentials or config not found for profile: {profile}",
             category=category,
         )
 
@@ -356,12 +391,27 @@ def extract_reply_snippet(output: str, max_chars: int = 120) -> str:
 
 def poke_claude(profile: str, prompt: str = "Hello, how are you doing?") -> dict[str, Any]:
     ccs_bin = shutil.which("ccs") or shutil.which("ccs.cmd")
-    if not ccs_bin:
-        return {"status": "error", "message": "CCS CLI (ccs) not found", "reply": None, "verified_active": False}
+    claude_bin = shutil.which("claude") or shutil.which("claude.exe") or shutil.which("claude.cmd")
+
+    home = Path(os.path.expanduser("~"))
+    use_ccs = (
+        bool(profile and profile not in ("", "default", "system"))
+        and (home / ".ccs" / "instances" / profile).exists()
+        and ccs_bin is not None
+    )
+
+    if use_ccs:
+        cmd = [ccs_bin, profile, "-p", prompt]
+    elif claude_bin:
+        cmd = [claude_bin, "-p", prompt]
+    elif ccs_bin and profile:
+        cmd = [ccs_bin, profile, "-p", prompt]
+    else:
+        return {"status": "error", "message": "Neither CCS (ccs) nor standard Claude CLI (claude) found in PATH", "reply": None, "verified_active": False}
 
     try:
         proc = subprocess.run(
-            [ccs_bin, profile, "-p", prompt],
+            cmd,
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,

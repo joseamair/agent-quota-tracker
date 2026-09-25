@@ -41,10 +41,13 @@ A lightweight, local quota monitoring system and web dashboard designed for deve
 |---|---|---|---|
 | **Google Antigravity** | Google | `agy` CLI | Direct live quota (`agy -p "/usage" --output-format json`) |
 | **OpenAI Codex** | OpenAI | `codex` CLI | Real-time JSON-RPC (`account/rateLimits/read`) |
-| **Claude (Personal)** | Anthropic | CCS profile `personal` | Instant live OAuth Usage API (`api.anthropic.com`) |
-| **Claude (Work)** | Anthropic | CCS profile `work` | Instant live OAuth Usage API (`api.anthropic.com`) |
-| **Claude (Work2)** | Anthropic | CCS profile `work2` | Instant live OAuth Usage API (`api.anthropic.com`) |
+| **Claude (Multi-Account)** | Anthropic | CCS profile (`~/.ccs/instances/`) | Instant live OAuth Usage API (`api.anthropic.com`) |
+| **Claude (Standard CLI)** | Anthropic | Official `claude` (`~/.claude/`) | Direct OAuth Usage API with fallback to `claude -p` |
 
+> 💡 **Claude Multi-Account vs Single-Account Setup**:
+> - **Multi-Account (`ccs`)**: By default, this dashboard tracks 3 distinct Claude profiles (`personal`, `work`, `work2`) using the [Claude Code Switcher (`ccs`)](https://github.com/joseamair/ccs) tool. Each profile keeps its own tokens in `~/.ccs/instances/<profile>`.
+> - **Standard Claude CLI**: If you don't use `ccs` and only have a single official Anthropic Claude installation (Windows, macOS, or Linux), the tracker seamlessly supports it out of the box! It reads credentials directly from `~/.claude/.credentials.json` (or `~/.claude.json`) and pokes using `claude -p` directly. Simply set `"profile": "default"` or omit the profile in `agents.config.json`.
+>
 > 📖 **Deep Dive**: For full technical details on agent quota mechanics, sliding window heuristics, and peak-time priming strategies, see [AGENTS.md](AGENTS.md).
 
 ---
@@ -94,7 +97,7 @@ A lightweight, local quota monitoring system and web dashboard designed for deve
 ### Prerequisites
 - Windows 10/11 with PowerShell (`pwsh`)
 - Python 3.11+ managed by [uv](https://github.com/astral-sh/uv)
-- Installed CLIs: `ccs`, `codex`, `agy`
+- Installed CLIs: `agy` (Antigravity), `codex` (OpenAI), and `ccs` (Claude Code Switcher for multi-account) OR official `claude` (for single-account)
 
 ### Installation
 

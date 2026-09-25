@@ -379,11 +379,19 @@ Provider credentials and configurations are mapped automatically from your stand
 - [x] **AGY & Codex False-Positive Quota Fixes** ([#16](https://github.com/joseamair/agent-quota-tracker/issues/16)): Strict idle window verification for sliding prospective timestamps.
 - [x] **Official Claude CLI Support**: Native single-account discovery and fallback to official Anthropic `claude` CLI.
 
-### 🔭 Upcoming & Future Capabilities
-- [ ] **Additional Assistant Trackers**: Support for Cursor, Windsurf, GitHub Copilot CLI, and Aider.
-- [ ] **Desktop Toast Notifications**: Windows & Linux desktop notifications when an inactive 5-hour window cools down and is ready to poke.
-- [ ] **Historical Analytics**: SQLite local logging of quota exhaustion patterns to display 30-day velocity graphs.
-- [ ] **System Tray Icon & Status Indicator**: Lightweight system tray applet showing live countdown in taskbar.
+### 🔭 Active Development Roadmap (v1.2.0 & Beyond)
+- [ ] **Native Desktop Toast Notifications & System Tray Indicator** ([#20](https://github.com/joseamair/agent-quota-tracker/issues/20)):
+  Cross-platform desktop notifications (Windows Action Center, macOS, Linux `notify-send`) on 5h window cooldown, morning priming completion, and persistent tray status icon.
+- [ ] **Additional AI Agent Trackers** ([#21](https://github.com/joseamair/agent-quota-tracker/issues/21)):
+  Extend modular trackers to support Cursor (fast requests/billing reset), Windsurf/Cascade (credits), GitHub Copilot CLI (rate limits), and Aider/OpenRouter (balance).
+- [ ] **OS-Level Automated Morning Priming (`--schedule-install`)** ([#22](https://github.com/joseamair/agent-quota-tracker/issues/22)):
+  Native Windows Task Scheduler / Linux systemd / macOS launchd generator to execute morning priming persistently without keeping a terminal open.
+- [ ] **Local SQLite Historical Analytics & Quota Velocity Charts** ([#23](https://github.com/joseamair/agent-quota-tracker/issues/23)):
+  Embedded timeseries logging (`history.db`) to record burn rate patterns, peak usage hours, and 7-day burndown visualizations.
+- [ ] **Web Dashboard v2 (Live Push & Interactive Controls)** ([#24](https://github.com/joseamair/agent-quota-tracker/issues/24)):
+  Server-Sent Events (SSE) live push updates, per-agent poke buttons, in-browser target-time scheduler, and OLED/Dark/Light theme switcher.
+- [ ] **Shell Prompt & Status Bar Integration (`--prompt-format`)** ([#25](https://github.com/joseamair/agent-quota-tracker/issues/25)):
+  Ultra-fast sub-10ms cached status segments for Starship prompt, Oh-My-Posh, tmux status lines, and PowerShell `$PROFILE`.
 
 ---
 

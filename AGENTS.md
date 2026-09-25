@@ -120,6 +120,14 @@ To automate this strategy without manual terminal loops, the following features 
   - At target time, executes a verified poke across all idle accounts, prints the status report, and exits cleanly.
   - Native cross-platform support across Python, standalone runner, and pure PowerShell (`agents_native.ps1`).
 
+### Next Phase Capabilities (v1.2.0 & Beyond)
+- **Desktop Toast Notifications & System Tray Applet** ([#20](https://github.com/joseamair/agent-quota-tracker/issues/20)): Native OS notification alerts on cooldown and morning priming with persistent tray status.
+- **Additional Agent Trackers** ([#21](https://github.com/joseamair/agent-quota-tracker/issues/21)): Cursor Composer, Windsurf/Cascade, GitHub Copilot CLI, and Aider/OpenRouter.
+- **OS-Level Scheduled Task Generator** ([#22](https://github.com/joseamair/agent-quota-tracker/issues/22)): `agents --schedule-install` via Windows Task Scheduler, systemd, and launchd.
+- **Historical Timeseries & Velocity Analytics** ([#23](https://github.com/joseamair/agent-quota-tracker/issues/23)): Local SQLite database (`history.db`) tracking burn rates and 7-day burndown charts.
+- **Web Dashboard v2** ([#24](https://github.com/joseamair/agent-quota-tracker/issues/24)): Server-Sent Events (SSE) live push updates, per-card controls, and OLED/Dark/Light themes.
+- **Shell Prompt & Status Bar Integration** ([#25](https://github.com/joseamair/agent-quota-tracker/issues/25)): Fast cached prompt segments for Starship, Oh-My-Posh, tmux, and PowerShell.
+
 ---
 
 ## 6. Security & Isolation Principles

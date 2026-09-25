@@ -192,11 +192,31 @@ function Get-AgentData {
                         if ($b5h) {
                             $rUtc5h = [DateTime]::Parse("$($b5h.reset_time)").ToUniversalTime()
                             $span5h = $rUtc5h - [DateTime]::UtcNow
-                            if ($span5h.TotalSeconds -gt 0) {
+                            $usedAgy = [Math]::Round((1.0 - [double]$b5h.remaining_fraction) * 100, 1)
+
+                            $hasFreshPoke = $false
+                            $statePath = Join-Path $HOME ".agents_dashboard\state.json"
+                            if (Test-Path $statePath) {
+                                try {
+                                    $st = Get-Content $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
+                                    $pStr = $st.agy.last_poked_at
+                                    if ($pStr) {
+                                        $pUtc = [DateTime]::Parse($pStr).ToUniversalTime()
+                                        $diffSec = ($nowUtc - $pUtc).TotalSeconds
+                                        if ($diffSec -ge 0 -and $diffSec -lt 600) { $hasFreshPoke = $true }
+                                    }
+                                } catch {}
+                            }
+                            $isIdle = ($usedAgy -eq 0.0 -and -not $hasFreshPoke)
+
+                            if ($span5h.TotalSeconds -gt 0 -and -not $isIdle) {
                                 $isActiveAgy = $true
                                 $remStrAgy = Format-Remaining $span5h
                                 $resetLocalAgy = $rUtc5h.ToLocalTime().ToString("HH:mm:ss") + " (Today)"
-                                $usedAgy = [Math]::Round((1.0 - [double]$b5h.remaining_fraction) * 100, 1)
+                            } else {
+                                $usedAgy = 0.0
+                                $remStrAgy = "Inactive"
+                                $resetLocalAgy = "Ready to Poke"
                             }
                         }
 
@@ -390,8 +410,11 @@ function Show-StatusTable {
         $winWidth = 120
     }
 
+    $nowStr = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    $nowTime = (Get-Date).ToString("HH:mm:ss")
+
     if ($winWidth -ge 115) {
-        Write-Host "`n⚡ AI AGENTS 5-HOUR & WEEKLY WINDOW QUOTA STATUS" -ForegroundColor Cyan
+        Write-Host "`n⚡ AI AGENTS 5-HOUR & WEEKLY WINDOW QUOTA STATUS  •  Checked: $nowStr" -ForegroundColor Cyan
         Write-Host ("=" * 110) -ForegroundColor DarkCyan
         $header = "{0,-24} {1,-8} {2,-10} {3,-11} {4,-18} {5,-8} {6,-8} {7}" -f "Agent / Account", "Provider", "5h State", "5h Left", "5h Reset", "5h Use", "Wk Use", "Weekly Reset"
         Write-Host $header -ForegroundColor Yellow
@@ -404,7 +427,7 @@ function Show-StatusTable {
         }
         Write-Host ("=" * 110 + "`n") -ForegroundColor DarkCyan
     } else {
-        Write-Host "`n⚡ AI AGENTS QUOTA STATUS" -ForegroundColor Cyan
+        Write-Host "`n⚡ AI AGENTS QUOTA STATUS  •  Checked: $nowTime" -ForegroundColor Cyan
         Write-Host ("=" * 80) -ForegroundColor DarkCyan
         $header = "{0,-14} {1,-10} {2,-9} {3,-7} {4,-6} {5,-6} {6}" -f "Agent", "State", "Left", "Reset", "5h%", "Wk%", "Weekly"
         Write-Host $header -ForegroundColor Yellow

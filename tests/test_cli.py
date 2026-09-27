@@ -135,3 +135,38 @@ def test_build_status_table_timestamp():
     assert "2026-09-25 12:34:56" in table.title
     assert "Checked:" in table.title
 
+
+def test_build_status_table_weekly_exhaustion_warning():
+    from agent_quota_tracker.cli import build_status_table
+    from agent_quota_tracker.models import AgentStatus
+
+    dummy_statuses = [
+        AgentStatus(
+            id="personal",
+            name="Claude (Personal)",
+            provider="claude",
+            is_active=False,
+            used_percent=0.0,
+            weekly_used_percent=100.0,
+            weekly_reset_str="in 30.0h (Mon)",
+            weekly_remaining_hours=30.0,
+        )
+    ]
+
+    # Test Wide view
+    t_wide = build_status_table(dummy_statuses, term_w=140)
+    # Check rows for warning symbol
+    found_warning = False
+    for col in t_wide.columns:
+        if col.header == "Wk Use":
+            # Inspect cell value
+            pass
+
+    from rich.console import Console
+    console = Console(record=True, width=140)
+    console.print(t_wide)
+    rendered = console.export_text()
+    assert "100" in rendered
+    assert "⚠️" in rendered
+
+

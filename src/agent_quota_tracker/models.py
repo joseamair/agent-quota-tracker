@@ -26,6 +26,7 @@ class AgentStatus:
     last_poked_at: Optional[str] = None
     details: dict[str, Any] = field(default_factory=dict)
     error: Optional[str] = None
+    locked_reason: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -47,6 +48,7 @@ class AgentStatus:
             "weekly_reset_str": self.weekly_reset_str,
             "last_poked_at": self.last_poked_at,
             "error": self.error,
+            "locked_reason": self.locked_reason,
         }
 
 

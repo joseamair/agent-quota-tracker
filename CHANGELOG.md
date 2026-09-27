@@ -6,7 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+### Fixed
+- **Accurate 5-Hour Idle Threshold (Sliding Window Ceiling Fix)** ([#29](https://github.com/joseamair/agent-quota-tracker/issues/29)):
+  - Fixed false-inactive bug in `ClaudeTracker` and `AGYTracker` where accounts with `0.0%` token utilization were unconditionally treated as `○ INACTIVE / Ready to Poke`, even when counting down inside an active window with remaining time (e.g. 18 minutes left).
+  - Implemented sliding prospective window ceiling check: an account with `0.0%` usage and no fresh poke is only considered idle if its reset time is at the sliding ceiling ($\ge 4\text{h } 59.25\text{m}$). Any countdown below that threshold is recognized as `● ACTIVE`.
+  - Prevents premature, wasteful poke invocations on accounts approaching their natural reset window.
+
 ### Added
+- **Weekly Quota Exhaustion Guard & Visual Alert System** ([#29](https://github.com/joseamair/agent-quota-tracker/issues/29)):
+  - **Dynamic CLI Highlighting**: Weekly usage is now highlighted in `bold red` with `⚠️ 100%` when $\ge 100\%$, `bold red` when $\ge 90\%$, and `bold yellow` when $\ge 75\%$.
+  - **Smart Poke Safety Guard**: `agents --poke`, `--poke-watch`, and OS scheduled priming tasks automatically skip accounts whose weekly quota has reached $\ge 100\%$ (or report provider `locked_reason`), saving residual token buffers from being wasted on greeting prompts.
+  - Added `--force` (`-f`) override to allow explicitly bypassing the weekly exhaustion guard when desired.
+  - Full Tri-Engine Parity across modular Python package, standalone `agents.py`, and pure native PowerShell (`agents_native.ps1`).
+
 - **OS-Level Scheduled Morning Priming Task Generator (`--schedule-install`, `--schedule-status`, `--schedule-remove`)** ([#22](https://github.com/joseamair/agent-quota-tracker/issues/22)):
   - Built-in CLI commands to install, inspect status of, and remove unattended OS-level background scheduled morning priming tasks without third-party dependencies.
   - Cross-platform native scheduler support:

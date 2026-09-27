@@ -69,11 +69,12 @@ Each provider operates on a **5-hour rolling threshold window**:
 
 The poke engine (`agents --poke`) safely primes dormant 5-hour quota windows without exhausting expensive generation limits:
 1. **Window Guard**: Inspects current active states; active accounts are immediately skipped to preserve token economy.
-2. **Lightweight Invocation**:
+2. **Weekly Quota Exhaustion Guard**: If an account has reached $\ge 100\%$ weekly utilization (or has a provider lockout reason), `--poke` automatically skips it to prevent exhausting the remaining emergency buffer on a greeting prompt (overridable with `--force`).
+3. **Lightweight Invocation**:
    - Anthropic Claude: Dispatches `ccs <profile> -p "Hello, how are you doing?"` (or `claude -p` for standard single-account setups) with `stdin=DEVNULL`.
    - OpenAI Codex: Dispatches non-interactive query via `codex exec`.
    - Google Antigravity: Dispatches non-interactive query via `agy prompt`.
-3. **Response Verification**: Waits for the model to reply, extracts a single-line summary (e.g. `↳ Reply: "I am doing well, ready to help..."`), and instantly re-queries the provider usage API to confirm the 5-hour window is live.
+4. **Response Verification**: Waits for the model to reply, extracts a single-line summary (e.g. `↳ Reply: "I am doing well, ready to help..."`), and instantly re-queries the provider usage API to confirm the 5-hour window is live.
 
 ---
 

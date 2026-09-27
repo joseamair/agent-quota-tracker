@@ -111,7 +111,7 @@ def build_status_table(
         table.add_column("5h Left", justify="right", style="bold", no_wrap=True)
         table.add_column("5h Reset", justify="center", no_wrap=True)
         table.add_column("5h Use", justify="right", no_wrap=True)
-        table.add_column("Wk Use", justify="right", style="dim", no_wrap=True)
+        table.add_column("Wk Use", justify="right", no_wrap=True)
         table.add_column("Weekly Reset", justify="left", style="cyan", no_wrap=True)
 
         for s in statuses:
@@ -120,7 +120,18 @@ def build_status_table(
             pct_val = round(s.used_percent, 1)
             pct_style = "bold red" if pct_val > 80 else ("bold yellow" if pct_val > 50 else "bold green")
             usage_text = Text(f"{pct_val}%", style=pct_style)
-            weekly_text = f"{round(s.weekly_used_percent, 1)}%" if s.weekly_used_percent is not None else "-"
+            if s.weekly_used_percent is not None:
+                wk_val = round(s.weekly_used_percent, 1)
+                if wk_val >= 100.0:
+                    weekly_text = Text(f"⚠️ {wk_val}%", style="bold red")
+                elif wk_val >= 90.0:
+                    weekly_text = Text(f"{wk_val}%", style="bold red")
+                elif wk_val >= 75.0:
+                    weekly_text = Text(f"{wk_val}%", style="bold yellow")
+                else:
+                    weekly_text = Text(f"{wk_val}%", style="dim")
+            else:
+                weekly_text = Text("-", style="dim")
             weekly_reset = Text(s.weekly_reset_str, style="bold cyan" if s.weekly_reset_str != "-" else "dim")
 
             table.add_row(
@@ -142,7 +153,7 @@ def build_status_table(
         table.add_column("5h Left", justify="right", style="bold", no_wrap=True)
         table.add_column("5h Reset", justify="center", no_wrap=True)
         table.add_column("5h %", justify="right", no_wrap=True)
-        table.add_column("Wk %", justify="right", style="dim", no_wrap=True)
+        table.add_column("Wk %", justify="right", no_wrap=True)
         table.add_column("Weekly Reset", justify="left", style="cyan", no_wrap=True)
 
         for s in statuses:
@@ -152,7 +163,18 @@ def build_status_table(
             pct_val = round(s.used_percent, 1)
             pct_style = "bold red" if pct_val > 80 else ("bold yellow" if pct_val > 50 else "bold green")
             usage_text = Text(f"{pct_val}%", style=pct_style)
-            weekly_text = f"{round(s.weekly_used_percent, 1)}%" if s.weekly_used_percent is not None else "-"
+            if s.weekly_used_percent is not None:
+                wk_val = round(s.weekly_used_percent, 1)
+                if wk_val >= 100.0:
+                    weekly_text = Text(f"⚠️ {wk_val}%", style="bold red")
+                elif wk_val >= 90.0:
+                    weekly_text = Text(f"{wk_val}%", style="bold red")
+                elif wk_val >= 75.0:
+                    weekly_text = Text(f"{wk_val}%", style="bold yellow")
+                else:
+                    weekly_text = Text(f"{wk_val}%", style="dim")
+            else:
+                weekly_text = Text("-", style="dim")
 
             if s.weekly_reset_str != "-" and "(" in s.weekly_reset_str:
                 parts = s.weekly_reset_str.split("(")
@@ -182,7 +204,7 @@ def build_status_table(
         table.add_column("Left", justify="right", style="bold", no_wrap=True)
         table.add_column("Reset", justify="center", no_wrap=True)
         table.add_column("5h%", justify="right", no_wrap=True)
-        table.add_column("Wk%", justify="right", style="dim", no_wrap=True)
+        table.add_column("Wk%", justify="right", no_wrap=True)
         table.add_column("Weekly", justify="left", style="cyan", no_wrap=True)
 
         for s in statuses:
@@ -198,7 +220,18 @@ def build_status_table(
             pct_val = int(round(s.used_percent))
             pct_style = "bold red" if pct_val > 80 else ("bold yellow" if pct_val > 50 else "bold green")
             usage_text = Text(f"{pct_val}%", style=pct_style)
-            weekly_text = f"{int(round(s.weekly_used_percent))}%" if s.weekly_used_percent is not None else "-"
+            if s.weekly_used_percent is not None:
+                wk_val = int(round(s.weekly_used_percent))
+                if wk_val >= 100:
+                    weekly_text = Text(f"⚠️ {wk_val}%", style="bold red")
+                elif wk_val >= 90:
+                    weekly_text = Text(f"{wk_val}%", style="bold red")
+                elif wk_val >= 75:
+                    weekly_text = Text(f"{wk_val}%", style="bold yellow")
+                else:
+                    weekly_text = Text(f"{wk_val}%", style="dim")
+            else:
+                weekly_text = Text("-", style="dim")
 
             if s.resets_at:
                 try:

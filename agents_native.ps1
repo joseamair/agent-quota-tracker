@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Pure PowerShell implementation to track and poke 5-hour rate limit windows across Claude (CCS), Codex, and AGY.
 
@@ -447,9 +447,9 @@ function Get-AgentData {
                                     }
                                 } catch {}
                             }
-                            $isIdle = ($usedAgy -eq 0.0 -and -not $hasFreshPoke)
+                            $isSlidingIdleAgy = ($usedAgy -eq 0.0 -and -not $hasFreshPoke -and $span5h.TotalSeconds -ge 17955)
 
-                            if ($span5h.TotalSeconds -gt 0 -and -not $isIdle) {
+                            if ($span5h.TotalSeconds -gt 0 -and -not $isSlidingIdleAgy) {
                                 $isActiveAgy = $true
                                 $remStrAgy = Format-Remaining $span5h
                                 $resetLocalAgy = $rUtc5h.ToLocalTime().ToString("HH:mm:ss") + " (Today)"
@@ -608,13 +608,14 @@ function Get-AgentData {
                             }
                         } catch {}
                     }
-                    $isIdle = ($used -eq 0.0 -and -not $hasFreshPoke)
+                    $remSpan = if ($resetsStr) { [DateTime]::Parse($resetsStr).ToUniversalTime() - $nowUtc } else { $null }
+                    $remSecs = if ($remSpan) { $remSpan.TotalSeconds } else { 0 }
+                    $isSlidingIdle = ($used -eq 0.0 -and -not $hasFreshPoke -and $remSecs -ge 17955)
 
                     if ($resetsStr) {
                         $resetsUtc = [DateTime]::Parse($resetsStr).ToUniversalTime()
-                        if ($resetsUtc -gt $nowUtc -and -not $isIdle) {
+                        if ($resetsUtc -gt $nowUtc -and -not $isSlidingIdle) {
                             $isActive = $true
-                            $remSpan = $resetsUtc - $nowUtc
                             $remainingStr = Format-Remaining $remSpan
                             $resetLocal = $resetsUtc.ToLocalTime().ToString("HH:mm:ss") + " (Today)"
                         } else {
@@ -678,8 +679,13 @@ function Show-StatusTable {
         Write-Host ("-" * 110) -ForegroundColor DarkGray
         $data = Get-AgentData
         foreach ($a in $data) {
-            $color = if ($a.IsActive) { "White" } else { "DarkGray" }
-            $line = "{0,-24} {1,-8} {2,-10} {3,-11} {4,-18} {5,-8} {6,-8} {7}" -f $a.Name, $a.Provider, $a.State, $a.Remaining, $a.NextReset, $a.UsagePct, $a.WkUsage, $a.WeeklyReset
+            $wkVal = $null
+            if ($a.WkUsage -and $a.WkUsage -ne "-" -and $a.WkUsage -match "(\d+(\.\d+)?)") {
+                $wkVal = [double]$matches[1]
+            }
+            $wkDisp = if ($wkVal -ge 100.0) { "⚠️ $($a.WkUsage)" } else { $a.WkUsage }
+            $color = if ($wkVal -ge 100.0) { "Red" } elseif ($a.IsActive) { "White" } else { "DarkGray" }
+            $line = "{0,-24} {1,-8} {2,-10} {3,-11} {4,-18} {5,-8} {6,-8} {7}" -f $a.Name, $a.Provider, $a.State, $a.Remaining, $a.NextReset, $a.UsagePct, $wkDisp, $a.WeeklyReset
             Write-Host $line -ForegroundColor $color
         }
         Write-Host ("=" * 110 + "`n") -ForegroundColor DarkCyan
@@ -691,7 +697,6 @@ function Show-StatusTable {
         Write-Host ("-" * 80) -ForegroundColor DarkGray
         $data = Get-AgentData
         foreach ($a in $data) {
-            $color = if ($a.IsActive) { "White" } else { "DarkGray" }
             $shortName = $a.Name.Replace("Google Antigravity (AGY)", "Antigravity").Replace("OpenAI Codex", "Codex").Replace("Claude (", "").Replace(")", "")
             $shortState = if ($a.IsActive) { "● ACTIVE" } else { "○ INACT" }
             $parts = $a.Remaining -split " "
@@ -704,7 +709,13 @@ function Show-StatusTable {
                 $day = $p[1].Split(" ")[0].Trim(" )")
                 $wkReset = "$h ($day)"
             }
-            $line = "{0,-14} {1,-10} {2,-9} {3,-7} {4,-6} {5,-6} {6}" -f $shortName, $shortState, $shortLeft, $shortReset, $a.UsagePct, $a.WkUsage, $wkReset
+            $wkVal = $null
+            if ($a.WkUsage -and $a.WkUsage -ne "-" -and $a.WkUsage -match "(\d+(\.\d+)?)") {
+                $wkVal = [double]$matches[1]
+            }
+            $wkDisp = if ($wkVal -ge 100.0) { "⚠️$([int]$wkVal)%" } else { $a.WkUsage }
+            $color = if ($wkVal -ge 100.0) { "Red" } elseif ($a.IsActive) { "White" } else { "DarkGray" }
+            $line = "{0,-14} {1,-10} {2,-9} {3,-7} {4,-6} {5,-6} {6}" -f $shortName, $shortState, $shortLeft, $shortReset, $a.UsagePct, $wkDisp, $wkReset
             Write-Host $line -ForegroundColor $color
         }
         Write-Host ("=" * 80 + "`n") -ForegroundColor DarkCyan
@@ -830,6 +841,15 @@ function Invoke-PokeAgents($forceMode, $targetAgentId, [switch]$NotifyAlert) {
 
         if ($item.IsActive -and -not $forceMode) {
             Write-Host "  ↷ SKIPPED: $($item.Name.PadRight(25)) Window already ACTIVE ($($item.Remaining) remaining, $($item.UsagePct) used)." -ForegroundColor DarkYellow
+            continue
+        }
+
+        $wkDbl = $null
+        if ($item.WkUsage -and $item.WkUsage -ne "-" -and $item.WkUsage -match "(\d+(\.\d+)?)") {
+            $wkDbl = [double]$matches[1]
+        }
+        if ($wkDbl -ge 100.0 -and -not $forceMode) {
+            Write-Host "  ↷ SKIPPED: $($item.Name.PadRight(25)) Weekly quota exhausted ($($item.WkUsage) used). Use -Force to override." -ForegroundColor DarkYellow
             continue
         }
 

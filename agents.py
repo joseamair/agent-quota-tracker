@@ -506,11 +506,11 @@ def get_claude_status(profile: str, display_name: str, category: str = "personal
         except Exception:
             pass
 
-    is_idle = (used_pct == 0.0 and not has_recent_poke)
+    remaining_secs = int((resets_dt - now).total_seconds()) if (resets_dt and resets_dt > now) else 0
+    is_sliding_idle = (used_pct == 0.0 and not has_recent_poke and remaining_secs >= (300 * 60 - 45))
 
-    if resets_dt and resets_dt > now and not is_idle:
+    if resets_dt and resets_dt > now and not is_sliding_idle:
         is_active = True
-        remaining_secs = int((resets_dt - now).total_seconds())
         label = "Active"
     else:
         is_active = False
@@ -896,11 +896,11 @@ def get_agy_status(display_name: str = "Google Antigravity (AGY)", category: str
             r_time = b_5h.get("reset_time")
             r_dt = parse_iso(r_time)
 
-            is_idle = (used_pct == 0.0 and not has_fresh_poke)
+            remaining_secs = int((r_dt - now).total_seconds()) if (r_dt and r_dt > now) else 0
+            is_sliding_idle = (used_pct == 0.0 and not has_fresh_poke and remaining_secs >= (300 * 60 - 45))
 
-            if r_dt and r_dt > now and not is_idle:
+            if r_dt and r_dt > now and not is_sliding_idle:
                 is_active = True
-                remaining_secs = max(0, int((r_dt - now).total_seconds()))
                 resets_at_str = r_dt.isoformat()
                 label = "Active"
             else:
@@ -1207,6 +1207,11 @@ def run_poke_command(force: bool = False, agent_id: Optional[str] = None, notify
             print(f"  ↷ SKIPPED: {s.name:<25} Window already ACTIVE ({s.time_remaining_str} remaining, {s.used_percent}% used).")
             continue
 
+        if not force and s.weekly_used_percent is not None and s.weekly_used_percent >= 100.0:
+            reset_msg = f", resets in {s.weekly_remaining_hours:.1f}h" if s.weekly_remaining_hours else ""
+            print(f"  ↷ SKIPPED: {s.name:<25} Weekly quota exhausted ({s.weekly_used_percent:.1f}% used{reset_msg}). Use --force to override.")
+            continue
+
         action_desc = "Forcing poke" if (s.is_active and force) else "Window is inactive"
         print(f"  ⏳ POKING:  {s.name:<25} {action_desc}. Sending prompt & waiting for reply...")
         if s.provider.lower() == "claude" or s.id.startswith("claude-"):
@@ -1448,7 +1453,10 @@ def print_status_table(as_json: bool = False) -> None:
                     reset_str = s.resets_at[:19]
 
             usage_str = f"{s.used_percent}%" if s.is_active else "0.0%"
-            wk_usage = f"{s.weekly_used_percent}%" if s.weekly_used_percent is not None else "-"
+            if s.weekly_used_percent is not None:
+                wk_usage = f"⚠️ {s.weekly_used_percent}%" if s.weekly_used_percent >= 100.0 else f"{s.weekly_used_percent}%"
+            else:
+                wk_usage = "-"
             wk_reset = s.weekly_reset_str
             print(f"{s.name:<24} {s.provider:<8} {state_str:<10} {s.time_remaining_str:<11} {reset_str:<18} {usage_str:<8} {wk_usage:<8} {wk_reset}")
 
@@ -1475,7 +1483,11 @@ def print_status_table(as_json: bool = False) -> None:
                 except Exception:
                     reset_str = "N/A"
             usage_str = f"{int(round(s.used_percent))}%" if s.is_active else "0%"
-            wk_usage = f"{int(round(s.weekly_used_percent))}%" if s.weekly_used_percent is not None else "-"
+            if s.weekly_used_percent is not None:
+                wk_val = int(round(s.weekly_used_percent))
+                wk_usage = f"⚠️{wk_val}%" if wk_val >= 100 else f"{wk_val}%"
+            else:
+                wk_usage = "-"
             wk_reset = s.weekly_reset_str
             if wk_reset != "-" and "(" in wk_reset:
                 parts = wk_reset.split("(")

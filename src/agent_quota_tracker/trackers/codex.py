@@ -206,6 +206,18 @@ class CodexTracker(BaseTracker):
                 verified_active=True,
             )
 
+        if not force and isinstance(status.weekly_used_percent, (int, float)) and status.weekly_used_percent >= 100.0:
+            reset_msg = f", resets in {status.weekly_remaining_hours:.1f}h" if status.weekly_remaining_hours is not None else ""
+            return PokeResult(
+                agent_id=self.agent_id,
+                agent_name=self.display_name,
+                action_taken="skipped",
+                message=f"Weekly quota exhausted ({status.weekly_used_percent:.1f}% used{reset_msg}). Skipped poke (use --force to override).",
+                time_remaining_str="Inactive",
+                used_percent=status.used_percent,
+                verified_active=False,
+            )
+
         codex_bin = shutil.which("codex") or shutil.which("codex.cmd")
         if not codex_bin:
             return PokeResult(

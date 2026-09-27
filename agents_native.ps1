@@ -50,6 +50,16 @@ param(
 
     [switch]$Refresh,
 
+    [string]$ScheduleInstall,
+
+    [switch]$ScheduleStatus,
+
+    [switch]$ScheduleRemove,
+
+    [string]$Frequency = "daily",
+
+    [switch]$Once,
+
     [Alias("h", "?")]
     [switch]$Help
 )
@@ -62,7 +72,7 @@ if ($Help) {
 Monitor rolling rate limit windows, track weekly resets, and poke AI accounts non-interactively.
 
 USAGE:
-  .\agents_native.ps1 [-Status] [-Poke] [-PokeWatch] [-PokeAt <HH:MM>] [-Interval <dur>] [-Prompt] [-PromptFormat <fmt>] [-Force] [-TargetAgent <id>] [-Dashboard] [-Help]
+  .\agents_native.ps1 [-Status] [-Poke] [-PokeWatch] [-PokeAt <HH:MM>] [-Interval <dur>] [-Prompt] [-PromptFormat <fmt>] [-ScheduleInstall <HH:MM>] [-ScheduleStatus] [-ScheduleRemove] [-Force] [-TargetAgent <id>] [-Dashboard] [-Help]
 
 OPTIONS:
   -Status, -s            Display live 5-hour rolling threshold window state, time remaining,
@@ -81,6 +91,9 @@ OPTIONS:
   -Prompt                Output an ultra-fast (<15ms) cached status segment for custom shell prompts.
   -PromptFormat <str>    Format template or preset ('default', 'compact', 'minimal', 'tmux', 'json').
   -Refresh               Force refresh live status from provider APIs for prompt segment.
+  -ScheduleInstall <time>Install an OS-level background scheduled task to prime quotas daily (default: 07:30).
+  -ScheduleStatus        Display status of the OS-level background scheduled morning priming task.
+  -ScheduleRemove        Uninstall and remove the OS-level background scheduled morning priming task.
   -Dashboard, -d         Launch the local web dashboard at http://localhost:5050.
   -Help, -h, -?          Show this help message and exit.
 
@@ -89,6 +102,9 @@ EXAMPLES:
   .\agents_native.ps1 -Prompt
   .\agents_native.ps1 -PromptFormat compact
   .\agents_native.ps1 -PromptFormat "Agents: {active}/{total}"
+  .\agents_native.ps1 -ScheduleInstall 07:30 -Notify
+  .\agents_native.ps1 -ScheduleStatus
+  .\agents_native.ps1 -ScheduleRemove
   .\agents_native.ps1 -Poke -Notify
   .\agents_native.ps1 -PokeWatch -Interval 30m -Notify
   .\agents_native.ps1 -PokeAt 07:30 -Notify
@@ -101,7 +117,7 @@ EXAMPLES:
 }
 
 # Default to Status if no action switch passed
-if (-not $Status -and -not $Poke -and -not $PokeWatch -and -not $PokeAt -and -not $Dashboard -and -not $Json -and -not $TestNotify -and -not $Prompt -and -not $PromptFormat -and $Watch -eq 0 -and -not $PSBoundParameters.ContainsKey('Watch')) {
+if (-not $Status -and -not $Poke -and -not $PokeWatch -and -not $PokeAt -and -not $Dashboard -and -not $Json -and -not $TestNotify -and -not $Prompt -and -not $PromptFormat -and -not $ScheduleInstall -and -not $ScheduleStatus -and -not $ScheduleRemove -and $Watch -eq 0 -and -not $PSBoundParameters.ContainsKey('Watch')) {
     $Status = $true
 }
 
@@ -878,8 +894,150 @@ function Invoke-PokeAgents($forceMode, $targetAgentId, [switch]$NotifyAlert) {
         $null = Send-DesktopNotification -Title "⚡ Agent Quota Primed" -Message "Successfully primed: $namesStr"
     }
 
+    $primedStr = if ($pokedList.Count -gt 0) { $pokedList -join ", " } else { "none" }
+    Add-ScheduleLog "Poke executed: $($pokedList.Count) primed ($primedStr)"
+
     Write-Host "`nDone!`n"
     return $pokedList
+}
+
+function Get-ScheduleLogPath {
+    $dir = Join-Path $HOME ".agent_quota_tracker"
+    if (-not (Test-Path $dir)) { $null = New-Item -ItemType Directory -Path $dir -Force }
+    return (Join-Path $dir "schedule.log")
+}
+
+function Add-ScheduleLog([string]$message) {
+    try {
+        $logPath = Get-ScheduleLogPath
+        $timeStr = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        Add-Content -Path $logPath -Value "[$timeStr] $message" -Encoding UTF8 -ErrorAction SilentlyContinue
+    } catch {}
+}
+
+function Install-AgentSchedule([string]$timeStr, [switch]$NotifyAlert, [string]$Frequency = "daily") {
+    if (-not $timeStr) { $timeStr = "07:30" }
+    if ($timeStr -notmatch '^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$') {
+        Write-Host "✖ Error: Invalid time format '$timeStr'. Expected HH:MM in 24-hour format (e.g. 07:30)." -ForegroundColor Red
+        return
+    }
+    $parts = $timeStr.Split(":")
+    $hour = [int]$parts[0]
+    $minute = [int]$parts[1]
+    $formattedTime = "{0:D2}:{1:D2}" -f $hour, $minute
+
+    $taskName = "AgentQuotaTrackerMorningPriming"
+    $scriptPath = $PSCommandPath
+    if (-not $scriptPath) { $scriptPath = "$PSScriptRoot\agents_native.ps1" }
+    $workingDir = $PSScriptRoot
+
+    $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" -Poke"
+    if ($NotifyAlert) {
+        $argList += " -Notify"
+    }
+
+    $freq = $Frequency.ToLower()
+    $schedDesc = "Daily at $formattedTime"
+    if ($freq -eq "once") {
+        $schedDesc = "Once at $formattedTime"
+        $targetDt = (Get-Date).Date.AddHours($hour).AddMinutes($minute)
+        if ($targetDt -le (Get-Date)) { $targetDt = $targetDt.AddDays(1) }
+        $trigger = New-ScheduledTaskTrigger -Once -At $targetDt
+    } elseif ($freq -in @("weekdays", "weekday", "workdays")) {
+        $schedDesc = "Weekdays at $formattedTime"
+        $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At $formattedTime
+    } else {
+        $trigger = New-ScheduledTaskTrigger -Daily -At $formattedTime
+    }
+
+    Write-Host "`n⚡ Registering OS-Level Scheduled Priming Task ($freq) at $formattedTime..." -ForegroundColor Cyan
+
+    try {
+        $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $argList -WorkingDirectory $workingDir
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
+
+        Add-ScheduleLog "Scheduled task installed: $schedDesc (Windows Task Scheduler)"
+
+        Write-Host "✔ Successfully registered scheduled priming task!`n" -ForegroundColor Green
+        Write-Host "  Task Name:      $taskName" -ForegroundColor White
+        Write-Host "  Platform:       Windows Task Scheduler" -ForegroundColor Cyan
+        Write-Host "  Schedule:       $schedDesc" -ForegroundColor Cyan
+        $alertStr = if ($NotifyAlert) { "Enabled (-Notify)" } else { "Disabled" }
+        Write-Host "  Desktop Alerts: $alertStr" -ForegroundColor Cyan
+        Write-Host "  Execution:      powershell.exe $argList" -ForegroundColor Cyan
+        Write-Host "  Log File:       $(Get-ScheduleLogPath)" -ForegroundColor Cyan
+        Write-Host "`nThe system will automatically trigger morning priming even when your terminal is closed.`n" -ForegroundColor DarkGray
+    } catch {
+        Write-Host "✖ Failed to register scheduled task: $_" -ForegroundColor Red
+    }
+}
+
+function Get-AgentScheduleStatus {
+    $taskName = "AgentQuotaTrackerMorningPriming"
+    Write-Host "`n⚡ OS-Level Scheduled Priming Task Status`n" -ForegroundColor Cyan
+    Write-Host "  Task Name:      $taskName" -ForegroundColor White
+    Write-Host "  Platform:       Windows Task Scheduler" -ForegroundColor Cyan
+
+    $t = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($t) {
+        $info = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
+        Write-Host "  Status:         Installed (Active)" -ForegroundColor Green
+        Write-Host "  State:          $($t.State)" -ForegroundColor Cyan
+        $nextRun = if ($info -and $info.NextRunTime -and $info.NextRunTime.Year -gt 2000) { $info.NextRunTime.ToString('yyyy-MM-dd HH:mm:ss') } else { 'Pending' }
+        Write-Host "  Next Run Time:  $nextRun" -ForegroundColor Cyan
+        $lastRun = if ($info -and $info.LastRunTime -and $info.LastRunTime.Year -gt 2000) { $info.LastRunTime.ToString('yyyy-MM-dd HH:mm:ss') } else { 'Never' }
+        Write-Host "  Last Run Time:  $lastRun" -ForegroundColor Cyan
+        if ($info) {
+            $exitCodeStr = if ($info.LastTaskResult -eq 0) { "0 (Success)" } else { "$($info.LastTaskResult)" }
+            Write-Host "  Last Exit Code: $exitCodeStr" -ForegroundColor Cyan
+        }
+    } else {
+        Write-Host "  Status:         Not Installed" -ForegroundColor Yellow
+    }
+
+    $logFile = Get-ScheduleLogPath
+    Write-Host "  Log File:       $logFile" -ForegroundColor Cyan
+
+    if (Test-Path $logFile) {
+        $lines = @(Get-Content -Path $logFile -ErrorAction SilentlyContinue | Where-Object { $_.Trim() })
+        if ($lines.Count -gt 0) {
+            Write-Host "`n  Recent Schedule Logs (last 5 runs):" -ForegroundColor DarkGray
+            $start = [math]::Max(0, $lines.Count - 5)
+            for ($i = $start; $i -lt $lines.Count; $i++) {
+                Write-Host "    $($lines[$i])" -ForegroundColor DarkGray
+            }
+        }
+    }
+    Write-Host ""
+}
+
+function Uninstall-AgentSchedule {
+    $taskName = "AgentQuotaTrackerMorningPriming"
+    Write-Host "`n⚡ Removing OS-Level Scheduled Priming Task..." -ForegroundColor Cyan
+    try {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+        Add-ScheduleLog "Scheduled task removed (Windows Task Scheduler)"
+        Write-Host "✔ Successfully uninstalled scheduled priming task.`n" -ForegroundColor Green
+    } catch {
+        Write-Host "✖ Failed to remove scheduled task: $_`n" -ForegroundColor Red
+    }
+}
+
+if ($ScheduleInstall) {
+    $f = if ($Once) { "once" } elseif ($Frequency) { $Frequency } else { "daily" }
+    Install-AgentSchedule -timeStr $ScheduleInstall -NotifyAlert:$Notify -Frequency $f
+    exit 0
+}
+
+if ($ScheduleStatus) {
+    Get-AgentScheduleStatus
+    exit 0
+}
+
+if ($ScheduleRemove) {
+    Uninstall-AgentSchedule
+    exit 0
 }
 
 if ($TestNotify) {

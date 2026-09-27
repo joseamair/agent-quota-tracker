@@ -73,6 +73,15 @@ A lightweight, local quota monitoring system and web dashboard designed for deve
   - Automatically primes 5-hour rolling threshold windows at a planned target time (`HH:MM`, e.g. `07:30`).
   - Automatically rolls over to the next morning if the target time has passed today.
   - Maximizes workday coding output: primes early so you receive a fresh 100% quota reset right in the middle of afternoon peak hours.
+- **OS-Level Automated Task Generator (`--schedule-install`, `--schedule-status`, `--schedule-remove`)**:
+  - Registers, inspects, and uninstalls persistent unattended background morning priming tasks directly with native OS schedulers:
+    - **Windows**: Windows Task Scheduler (`ScheduledTasks` cmdlets) without requiring administrator elevation.
+    - **Linux**: User `crontab`.
+    - **macOS**: `launchd` LaunchAgent (`~/Library/LaunchAgents/com.agentquotatracker.priming.plist`).
+  - Zero third-party dependencies; complete execution logging to `~/.agent_quota_tracker/schedule.log`.
+- **Shell Prompt & Status Bar Integration (`--prompt`, `--prompt-format`)**:
+  - Ultra-fast (<15ms) cached status segments for **Starship**, **Oh-My-Posh**, **tmux**, and **PowerShell `$PROFILE`**.
+  - Dynamic mathematical countdown calculation from cached timestamps without background daemons.
 - **Interactive Web Dashboard**:
   - Embedded HTTP server at `http://localhost:5050` with REST endpoints (`/api/status`, `/api/poke`).
   - Circular SVG progress rings, live ticking JavaScript countdown timers, and manual poke triggers.
@@ -222,7 +231,41 @@ Schedules an automated poke at a specific planned time of day (24-hour format) t
 
 ---
 
-### 5. `agents --dashboard` (`-d`)
+### 5. `agents --schedule-install` / `--schedule-status` / `--schedule-remove` (OS Background Priming)
+Registers an unattended OS-level background scheduled task to automatically prime your agents every morning, even when your terminal is closed or you have not logged in yet.
+
+```powershell
+# Install daily morning priming task (default: 07:30 AM) with desktop notifications:
+.\agents.ps1 --schedule-install 07:30 --notify
+
+# Check status, state, next run time, and recent execution logs:
+.\agents.ps1 --schedule-status
+
+# Uninstall and remove the background scheduled task:
+.\agents.ps1 --schedule-remove
+
+# Using positional subcommands:
+uv run agents schedule install 07:30
+uv run agents schedule status
+uv run agents schedule remove
+
+# With native PowerShell:
+.\agents_native.ps1 -ScheduleInstall 07:30 -Notify
+.\agents_native.ps1 -ScheduleStatus
+.\agents_native.ps1 -ScheduleRemove
+```
+
+| OS Platform | Scheduler Backend | Configuration / Storage Path |
+|---|---|---|
+| **Windows** | Windows Task Scheduler | Task: `AgentQuotaTrackerMorningPriming` |
+| **Linux** | User Crontab | `crontab -l` (`# AgentQuotaTrackerMorningPriming`) |
+| **macOS** | launchd LaunchAgent | `~/Library/LaunchAgents/com.agentquotatracker.priming.plist` |
+
+All executions and outcomes are persisted in `~/.agent_quota_tracker/schedule.log`.
+
+---
+
+### 6. `agents --dashboard` (`-d`)
 Spins up the local web dashboard at `http://localhost:5050` and automatically opens it in your default browser.
 
 ```powershell
@@ -240,7 +283,7 @@ Spins up the local web dashboard at `http://localhost:5050` and automatically op
 
 ---
 
-### 6. `agents --status --json`
+### 7. `agents --status --json`
 Outputs raw machine-readable JSON status for all tracked accounts (ideal for custom status bars, polybars, tmux, and automation):
 
 ```powershell
@@ -251,7 +294,7 @@ uv run agents --json
 
 ---
 
-### 7. `agents --prompt` / `agents --prompt-format` (Shell Prompt & Status Bar Integration)
+### 8. `agents --prompt` / `agents --prompt-format` (Shell Prompt & Status Bar Integration)
 Ultra-fast (<15ms) cached status segments for custom shell prompts (**Starship**, **Oh-My-Posh**, **PowerShell `$PROFILE`**) and status lines (**tmux**, **Waybar**, **Polybar**).
 
 ```powershell

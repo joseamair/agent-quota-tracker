@@ -939,7 +939,63 @@ def fetch_all_statuses() -> list[AgentInfo]:
     return statuses
 
 
-def run_poke_command(force: bool = False, agent_id: Optional[str] = None) -> None:
+def send_notification(title: str, message: str) -> bool:
+    """Send a native OS desktop notification."""
+    import platform
+    import subprocess
+    system = platform.system().lower()
+    safe_title = title.replace('"', '\\"').replace("'", "’")
+    safe_message = message.replace('"', '\\"').replace("'", "’").replace("\n", " ")
+    try:
+        if system == "windows":
+            ps_script = f"""
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+$template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
+$textNodes = $template.GetElementsByTagName('text')
+$null = $textNodes.Item(0).AppendChild($template.CreateTextNode('{safe_title}'))
+$null = $textNodes.Item(1).AppendChild($template.CreateTextNode('{safe_message}'))
+$toast = [Windows.UI.Notifications.ToastNotification]::new($template)
+$notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\powershell.exe')
+$notifier.Show($toast)
+"""
+            subprocess.Popen(
+                ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            return True
+        elif system == "darwin":
+            apple_script = f'display notification "{safe_message}" with title "{safe_title}"'
+            subprocess.Popen(["osascript", "-e", apple_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+            return True
+        elif system == "linux":
+            subprocess.Popen(["notify-send", safe_title, safe_message], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+            return True
+    except Exception:
+        return False
+    return False
+
+
+def are_notifications_enabled() -> bool:
+    if sys.platform != "win32":
+        return True
+    try:
+        import winreg
+
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\PushNotifications",
+        ) as key:
+            val, _ = winreg.QueryValueEx(key, "ToastEnabled")
+            return bool(val != 0)
+    except Exception:
+        return True
+
+
+
+def run_poke_command(force: bool = False, agent_id: Optional[str] = None, notify: bool = False) -> list[dict]:
     mode_str = " (FORCE mode enabled)" if force else ""
     print(f"\n⚡ [POKE] Checking 5-hour rolling threshold windows{mode_str}...\n")
     statuses = fetch_all_statuses()
@@ -948,8 +1004,9 @@ def run_poke_command(force: bool = False, agent_id: Optional[str] = None) -> Non
         statuses = [s for s in statuses if s.id == target or s.id == f"claude-{target}"]
         if not statuses:
             print(f"✖ Unknown agent ID '{agent_id}'. Options: work, personal, work2, codex, agy\n")
-            return
+            return []
 
+    poked_results = []
     for s in statuses:
         if s.is_active and not force:
             print(f"  ↷ SKIPPED: {s.name:<25} Window already ACTIVE ({s.time_remaining_str} remaining, {s.used_percent}% used).")
@@ -967,6 +1024,8 @@ def run_poke_command(force: bool = False, agent_id: Optional[str] = None) -> Non
         else:
             res = {"status": "error", "message": "Unknown agent", "reply": None, "verified_active": False}
 
+        res["agent_name"] = s.name
+        poked_results.append(res)
         if res["status"] == "poked":
             print(f"  ✔ SUCCESS: {s.name:<25} {res['message']}")
             if res.get("reply"):
@@ -978,7 +1037,14 @@ def run_poke_command(force: bool = False, agent_id: Optional[str] = None) -> Non
         else:
             print(f"  ✖ ERROR:   {s.name:<25} {res['message']}")
 
+    if notify:
+        successful = [r for r in poked_results if r.get("status") == "poked"]
+        if successful:
+            names = ", ".join(r["agent_name"] for r in successful)
+            send_notification("⚡ Agent Quota Primed", f"Successfully primed: {names}")
+
     print("\nDone!\n")
+    return poked_results
 
 
 def run_watch_loop(interval: int = 15) -> None:
@@ -1066,12 +1132,14 @@ def run_poke_watch_loop(
     interval_arg: Optional[str] = None,
     force: bool = False,
     agent_id: Optional[str] = None,
+    notify: bool = False,
 ) -> None:
     fixed_interval = parse_duration(interval_arg) if interval_arg else None
     mode_str = f"fixed {format_duration(fixed_interval)} interval" if fixed_interval else "adaptive window expiry mode"
+    notify_str = " • Notifications: ON" if notify else ""
     print(f"\n================================================================================================================================")
     print(f"  ⚡ AUTONOMOUS POKE WATCHDOG STARTED")
-    print(f"  Running in {mode_str}. Automatically primes 5h quota windows as accounts cool down.")
+    print(f"  Running in {mode_str}{notify_str}. Automatically primes 5h quota windows as accounts cool down.")
     print(f"  Press Ctrl+C to terminate.")
     print(f"================================================================================================================================\n")
 
@@ -1080,7 +1148,7 @@ def run_poke_watch_loop(
         while True:
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             print(f"▶ Watchdog Cycle #{cycle} • {now_str}")
-            run_poke_command(force=force, agent_id=agent_id)
+            run_poke_command(force=force, agent_id=agent_id, notify=notify)
 
             if fixed_interval:
                 sleep_secs = fixed_interval
@@ -1105,6 +1173,7 @@ def run_poke_at(
     watch_interval: Optional[str] = None,
     force: bool = False,
     agent_id: Optional[str] = None,
+    notify: bool = False,
 ) -> None:
     try:
         target_dt, delta_secs = parse_target_time(target_time_str)
@@ -1114,10 +1183,11 @@ def run_poke_at(
 
     target_str = target_dt.strftime("%Y-%m-%d %H:%M:%S")
     relative_day = "today" if target_dt.date() == datetime.now().date() else "tomorrow"
+    notify_str = " • Notifications: ON" if notify else ""
 
     print(f"\n================================================================================================================================")
     print(f"  ⚡ SCHEDULED PEAK-TIME PRIMING MODE")
-    print(f"  Target Execution: {target_str} ({relative_day})")
+    print(f"  Target Execution: {target_str} ({relative_day}){notify_str}")
     print(f"  Strategic priming ensures 5-hour quota reset aligns with peak workday hours.")
     print(f"  Press Ctrl+C to cancel schedule.")
     print(f"================================================================================================================================\n")
@@ -1131,12 +1201,16 @@ def run_poke_at(
         return
 
     print(f"\n⚡ Target time reached ({target_str})! Initiating scheduled poke...\n")
-    run_poke_command(force=force, agent_id=agent_id)
+    poked_results = run_poke_command(force=force, agent_id=agent_id, notify=notify)
     print_status_table()
+
+    if notify:
+        active_count = sum(1 for r in poked_results if r.get("status") in ("poked", "skipped"))
+        send_notification("🎯 Morning Priming Complete", f"All {active_count} agent window(s) ready for peak workday coding!")
 
     if and_watch:
         print("Transitioning into automated watchdog mode...\n")
-        run_poke_watch_loop(interval_arg=watch_interval, force=force, agent_id=agent_id)
+        run_poke_watch_loop(interval_arg=watch_interval, force=force, agent_id=agent_id, notify=notify)
 
 
 def print_status_table(as_json: bool = False) -> None:
@@ -1501,6 +1575,17 @@ Examples:
         help="Dashboard web server port (default: 5050)",
     )
     parser.add_argument(
+        "--notify",
+        "-n",
+        action="store_true",
+        help="Send cross-platform native OS desktop notifications on poke events and schedule completions.",
+    )
+    parser.add_argument(
+        "--test-notify",
+        action="store_true",
+        help="Send a test desktop notification to verify OS notification settings and exit.",
+    )
+    parser.add_argument(
         "cmd",
         nargs="?",
         choices=["status", "poke", "dashboard", "poke-watch"],
@@ -1508,6 +1593,19 @@ Examples:
     )
 
     args = parser.parse_args()
+
+    # Handle test notification
+    if args.test_notify:
+        print("⚡ Sending test desktop notification...")
+        ok = send_notification("⚡ Agent Quota Tracker", "Desktop notifications are working perfectly!")
+        if ok:
+            print("✔ Notification dispatched successfully!")
+            if not are_notifications_enabled():
+                print("ℹ Note: Windows Notifications are turned OFF in your Windows Settings (System > Notifications). Enable notifications to see visual toast alerts.")
+            print()
+        else:
+            print("✖ Notification failed to dispatch.\n")
+        return
 
     is_status = args.status or args.cmd == "status"
     is_poke = args.poke or args.cmd == "poke"
@@ -1521,19 +1619,21 @@ Examples:
             watch_interval=args.interval,
             force=args.force,
             agent_id=args.agent,
+            notify=args.notify,
         )
     elif is_poke_watch:
         run_poke_watch_loop(
             interval_arg=args.interval,
             force=args.force,
             agent_id=args.agent,
+            notify=args.notify,
         )
     elif args.watch is not None:
         run_watch_loop(interval=args.watch or 15)
     elif is_status or args.json:
         print_status_table(as_json=args.json)
     elif is_poke:
-        run_poke_command(force=args.force, agent_id=args.agent)
+        run_poke_command(force=args.force, agent_id=args.agent, notify=args.notify)
     elif is_dashboard:
         start_dashboard(port=args.port)
     else:

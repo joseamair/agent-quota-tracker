@@ -120,8 +120,16 @@ To automate this strategy without manual terminal loops, the following features 
   - At target time, executes a verified poke across all idle accounts, prints the status report, and exits cleanly.
   - Native cross-platform support across Python, standalone runner, and pure PowerShell (`agents_native.ps1`).
 
+### Feature 3: Native Desktop Toast Notifications (`--notify`, `--test-notify`) [DELIVERED - v1.2.0]
+- **Tracking Issue**: [#20](https://github.com/joseamair/agent-quota-tracker/issues/20)
+- **Command**: `agents --notify` (`-n`), `agents --test-notify`
+- **Architecture**:
+  - Zero third-party dependencies: uses native Windows WinRT XML toast notifications (`ToastText02`), macOS `osascript`, and Linux `notify-send`.
+  - Dispatches notifications on successful priming (`--poke`), cooldown expirations in watchdog daemon (`--poke-watch`), and scheduled target times (`--poke-at`).
+  - Automatic detection and friendly warning when Windows Notifications master toggle is disabled in system settings.
+  - Native cross-platform support across Python package, standalone `agents.py`, and pure PowerShell (`agents_native.ps1`).
+
 ### Next Phase Capabilities (v1.2.0 & Beyond)
-- **Desktop Toast Notifications & System Tray Applet** ([#20](https://github.com/joseamair/agent-quota-tracker/issues/20)): Native OS notification alerts on cooldown and morning priming with persistent tray status.
 - **Additional Agent Trackers** ([#21](https://github.com/joseamair/agent-quota-tracker/issues/21)): Cursor Composer, Windsurf/Cascade, GitHub Copilot CLI, and Aider/OpenRouter.
 - **OS-Level Scheduled Task Generator** ([#22](https://github.com/joseamair/agent-quota-tracker/issues/22)): `agents --schedule-install` via Windows Task Scheduler, systemd, and launchd.
 - **Historical Timeseries & Velocity Analytics** ([#23](https://github.com/joseamair/agent-quota-tracker/issues/23)): Local SQLite database (`history.db`) tracking burn rates and 7-day burndown charts.

@@ -186,8 +186,11 @@ Continuous autonomous watchdog daemon that monitors agent 5-hour quota windows a
 .\agents.ps1 --poke-watch --interval 30m
 .\agents.ps1 --poke-watch --interval 2h
 
+# Enable native OS desktop toast notifications when accounts are primed:
+.\agents.ps1 --poke-watch --notify
+
 # With native PowerShell:
-.\agents_native.ps1 -PokeWatch -Interval 30m
+.\agents_native.ps1 -PokeWatch -Interval 30m -Notify
 ```
 
 > 🧠 **Adaptive Sleep Engine**:  
@@ -202,8 +205,14 @@ Schedules an automated poke at a specific planned time of day (24-hour format) t
 # Prime accounts tomorrow morning at 07:30 AM:
 .\agents.ps1 --poke-at 07:30
 
+# With desktop notification alert upon completion:
+.\agents.ps1 --poke-at 07:30 --notify
+
+# Verify desktop notifications on your system:
+.\agents.ps1 --test-notify
+
 # With native PowerShell:
-.\agents_native.ps1 -PokeAt 07:30
+.\agents_native.ps1 -PokeAt 07:30 -Notify
 ```
 
 > 🎯 **Workday Double-Quota Strategy**:  

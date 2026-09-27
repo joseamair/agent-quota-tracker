@@ -21,7 +21,8 @@ from rich.text import Text
 
 from agent_quota_tracker.core import get_all_statuses, poke_all
 from agent_quota_tracker.dashboard import start_dashboard_server
-from agent_quota_tracker.models import AgentStatus
+from agent_quota_tracker.models import AgentStatus, PokeResult
+from agent_quota_tracker.notifications import are_notifications_enabled, send_notification
 from agent_quota_tracker.trackers.base import (
     format_duration,
     parse_duration,
@@ -271,7 +272,11 @@ def print_status_table(as_json: bool = False, term_w: Optional[int] = None) -> N
     active_console.print()
 
 
-def run_poke(force: bool = False, agent_id: Optional[str] = None) -> None:
+def run_poke(
+    force: bool = False,
+    agent_id: Optional[str] = None,
+    notify: bool = False,
+) -> list[PokeResult]:
     mode_text = " (FORCE mode enabled)" if force else ""
     console.print(Panel(f"[bold yellow]⚡ Poking agents to start 5-hour rolling threshold windows{mode_text}...[/bold yellow]"))
     results = poke_all(force=force, agent_id=agent_id)
@@ -290,7 +295,14 @@ def run_poke(force: bool = False, agent_id: Optional[str] = None) -> None:
         else:
             console.print(f"[bold red]✖ {r.agent_name}:[/bold red] {r.message}")
 
+    if notify:
+        poked = [r for r in results if r.action_taken == "poked"]
+        if poked:
+            names = ", ".join(r.agent_name for r in poked)
+            send_notification("⚡ Agent Quota Primed", f"Successfully primed: {names}")
+
     console.print()
+    return results
 
 
 def compute_adaptive_sleep_seconds(statuses: list[AgentStatus]) -> tuple[int, str]:
@@ -323,14 +335,16 @@ def run_poke_watch_loop(
     interval_arg: Optional[str] = None,
     force: bool = False,
     agent_id: Optional[str] = None,
+    notify: bool = False,
 ) -> None:
     """Continuously runs the smart poke engine, priming idle accounts on an adaptive or fixed schedule."""
     from datetime import timedelta
     fixed_interval = parse_duration(interval_arg) if interval_arg else None
     mode_str = f"fixed {format_duration(fixed_interval)} interval" if fixed_interval else "adaptive window expiry mode"
+    notify_str = " • Notifications: ON" if notify else ""
     console.print(Panel(
         f"[bold cyan]⚡ Autonomous Poke Watchdog Started[/bold cyan]\n"
-        f"[dim]Running in {mode_str}. Automatically primes 5h quota windows as accounts cool down.\n"
+        f"[dim]Running in {mode_str}{notify_str}. Automatically primes 5h quota windows as accounts cool down.\n"
         f"Press Ctrl+C to terminate.[/dim]"
     ))
 
@@ -339,7 +353,7 @@ def run_poke_watch_loop(
         while True:
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             console.print(f"[bold magenta]▶ Watchdog Cycle #{cycle}[/bold magenta] [dim]• {now_str}[/dim]")
-            run_poke(force=force, agent_id=agent_id)
+            run_poke(force=force, agent_id=agent_id, notify=notify)
 
             # Determine sleep time
             if fixed_interval:
@@ -365,6 +379,7 @@ def run_poke_at(
     watch_interval: Optional[str] = None,
     force: bool = False,
     agent_id: Optional[str] = None,
+    notify: bool = False,
 ) -> None:
     """Waits until a specific target time (e.g. 07:30) to prime quota windows before peak workday hours."""
     try:
@@ -375,10 +390,11 @@ def run_poke_at(
 
     target_str = target_dt.strftime("%Y-%m-%d %H:%M:%S")
     relative_day = "today" if target_dt.date() == datetime.now().date() else "tomorrow"
+    notify_str = " • Notifications: ON" if notify else ""
 
     console.print(Panel(
         f"[bold cyan]⚡ Scheduled Peak-Time Priming Mode[/bold cyan]\n"
-        f"[dim]Target Execution: [bold white]{target_str}[/bold white] ({relative_day})\n"
+        f"[dim]Target Execution: [bold white]{target_str}[/bold white] ({relative_day}){notify_str}\n"
         f"Strategic priming ensures 5-hour quota reset aligns with peak workday hours.\n"
         f"Press Ctrl+C to cancel schedule.[/dim]"
     ))
@@ -392,12 +408,16 @@ def run_poke_at(
         return
 
     console.print(f"\n[bold green]⚡ Target time reached ({target_str})! Initiating scheduled poke...[/bold green]\n")
-    run_poke(force=force, agent_id=agent_id)
+    poked_results = run_poke(force=force, agent_id=agent_id, notify=notify)
     print_status_table()
+
+    if notify:
+        active_count = sum(1 for r in poked_results if r.action_taken in ("poked", "skipped"))
+        send_notification("🎯 Morning Priming Complete", f"All {active_count} agent window(s) ready for peak workday coding!")
 
     if and_watch:
         console.print("[dim]Transitioning into automated watchdog mode...[/dim]\n")
-        run_poke_watch_loop(interval_arg=watch_interval, force=force, agent_id=agent_id)
+        run_poke_watch_loop(interval_arg=watch_interval, force=force, agent_id=agent_id, notify=notify)
 
 
 def main() -> None:
@@ -499,6 +519,17 @@ Examples:
         help="Do not automatically open the browser when launching the dashboard.",
     )
     parser.add_argument(
+        "--notify",
+        "-n",
+        action="store_true",
+        help="Send cross-platform native OS desktop notifications on poke events and schedule completions.",
+    )
+    parser.add_argument(
+        "--test-notify",
+        action="store_true",
+        help="Send a test desktop notification to verify OS notification settings and exit.",
+    )
+    parser.add_argument(
         "subcommand",
         nargs="?",
         choices=["status", "poke", "dashboard", "poke-watch"],
@@ -506,6 +537,19 @@ Examples:
     )
 
     args = parser.parse_args()
+
+    # Handle test notification
+    if args.test_notify:
+        console.print("[bold cyan]⚡ Sending test desktop notification...[/bold cyan]")
+        ok = send_notification("⚡ Agent Quota Tracker", "Desktop notifications are working perfectly!")
+        if ok:
+            console.print("[bold green]✔ Notification dispatched successfully![/bold green]")
+            if not are_notifications_enabled():
+                console.print("[dim yellow]ℹ Note: Windows Notifications are turned OFF in your Windows Settings (System > Notifications). Enable notifications to see visual toast alerts.[/dim yellow]")
+            console.print()
+        else:
+            console.print("[bold red]✖ Notification failed to dispatch.[/bold red]\n")
+        return
 
     # Determine command
     is_status = args.status or args.subcommand == "status"
@@ -520,19 +564,21 @@ Examples:
             watch_interval=args.interval,
             force=args.force,
             agent_id=args.agent,
+            notify=args.notify,
         )
     elif is_poke_watch:
         run_poke_watch_loop(
             interval_arg=args.interval,
             force=args.force,
             agent_id=args.agent,
+            notify=args.notify,
         )
     elif args.watch is not None:
         run_watch_loop(interval=args.watch or 15)
     elif is_status or args.json:
         print_status_table(as_json=args.json)
     elif is_poke:
-        run_poke(force=args.force, agent_id=args.agent)
+        run_poke(force=args.force, agent_id=args.agent, notify=args.notify)
     elif is_dashboard:
         start_dashboard_server(port=args.port, open_browser=not args.no_browser)
     else:

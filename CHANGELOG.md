@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [Unreleased]
+
+### Added
+- **Native Cross-Platform Desktop Toast Notifications (`--notify`, `-n`, `--test-notify`)** ([#20](https://github.com/joseamair/agent-quota-tracker/issues/20)):
+  - Cross-platform desktop toast notifications dispatching system alerts upon successful agent priming (`--poke`), automated watchdog cooldown expirations (`--poke-watch`), and target-time schedule wakeups (`--poke-at`).
+  - Zero third-party dependencies: uses native Windows 10/11 WinRT notifications via background PowerShell, macOS `osascript` notifications, and Linux `notify-send` with graceful fallback handling.
+  - Added `--test-notify` diagnostic flag to immediately verify native notification pipeline functionality.
+  - Added comprehensive test suite in `tests/test_notifications.py` covering Windows, macOS, and Linux dispatchers, special character sanitization, and error handling.
+  - Full Tri-Engine Parity implemented across modular Python package (`src/agent_quota_tracker/notifications.py`), standalone runner (`agents.py`), and native PowerShell (`agents_native.ps1`).
 
 ## [1.1.0] - 2026-09-25
 

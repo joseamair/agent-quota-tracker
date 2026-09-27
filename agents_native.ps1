@@ -56,6 +56,10 @@ param(
 
     [switch]$ScheduleRemove,
 
+    [string]$Frequency = "daily",
+
+    [switch]$Once,
+
     [Alias("h", "?")]
     [switch]$Help
 )
@@ -911,7 +915,7 @@ function Add-ScheduleLog([string]$message) {
     } catch {}
 }
 
-function Install-AgentSchedule([string]$timeStr, [switch]$NotifyAlert) {
+function Install-AgentSchedule([string]$timeStr, [switch]$NotifyAlert, [string]$Frequency = "daily") {
     if (-not $timeStr) { $timeStr = "07:30" }
     if ($timeStr -notmatch '^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$') {
         Write-Host "✖ Error: Invalid time format '$timeStr'. Expected HH:MM in 24-hour format (e.g. 07:30)." -ForegroundColor Red
@@ -932,20 +936,33 @@ function Install-AgentSchedule([string]$timeStr, [switch]$NotifyAlert) {
         $argList += " -Notify"
     }
 
-    Write-Host "`n⚡ Registering OS-Level Scheduled Priming Task at $formattedTime..." -ForegroundColor Cyan
+    $freq = $Frequency.ToLower()
+    $schedDesc = "Daily at $formattedTime"
+    if ($freq -eq "once") {
+        $schedDesc = "Once at $formattedTime"
+        $targetDt = (Get-Date).Date.AddHours($hour).AddMinutes($minute)
+        if ($targetDt -le (Get-Date)) { $targetDt = $targetDt.AddDays(1) }
+        $trigger = New-ScheduledTaskTrigger -Once -At $targetDt
+    } elseif ($freq -in @("weekdays", "weekday", "workdays")) {
+        $schedDesc = "Weekdays at $formattedTime"
+        $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At $formattedTime
+    } else {
+        $trigger = New-ScheduledTaskTrigger -Daily -At $formattedTime
+    }
+
+    Write-Host "`n⚡ Registering OS-Level Scheduled Priming Task ($freq) at $formattedTime..." -ForegroundColor Cyan
 
     try {
         $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $argList -WorkingDirectory $workingDir
-        $trigger = New-ScheduledTaskTrigger -Daily -At $formattedTime
         $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
         Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
 
-        Add-ScheduleLog "Scheduled task installed: Daily at $formattedTime (Windows Task Scheduler)"
+        Add-ScheduleLog "Scheduled task installed: $schedDesc (Windows Task Scheduler)"
 
         Write-Host "✔ Successfully registered scheduled priming task!`n" -ForegroundColor Green
         Write-Host "  Task Name:      $taskName" -ForegroundColor White
         Write-Host "  Platform:       Windows Task Scheduler" -ForegroundColor Cyan
-        Write-Host "  Schedule:       Daily at $formattedTime" -ForegroundColor Cyan
+        Write-Host "  Schedule:       $schedDesc" -ForegroundColor Cyan
         $alertStr = if ($NotifyAlert) { "Enabled (-Notify)" } else { "Disabled" }
         Write-Host "  Desktop Alerts: $alertStr" -ForegroundColor Cyan
         Write-Host "  Execution:      powershell.exe $argList" -ForegroundColor Cyan
@@ -1008,7 +1025,8 @@ function Uninstall-AgentSchedule {
 }
 
 if ($ScheduleInstall) {
-    Install-AgentSchedule -timeStr $ScheduleInstall -NotifyAlert:$Notify
+    $f = if ($Once) { "once" } elseif ($Frequency) { $Frequency } else { "daily" }
+    Install-AgentSchedule -timeStr $ScheduleInstall -NotifyAlert:$Notify -Frequency $f
     exit 0
 }
 

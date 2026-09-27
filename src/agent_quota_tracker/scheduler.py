@@ -131,15 +131,30 @@ def get_runner_details(notify: bool = True) -> tuple[str, list[str], str]:
 # Windows Task Scheduler Implementation
 # ---------------------------------------------------------------------------
 
-def _install_windows(time_str: str, notify: bool = True) -> dict[str, Any]:
+def _install_windows(time_str: str, notify: bool = True, frequency: str = "daily") -> dict[str, Any]:
     h, m = validate_time_format(time_str)
     formatted_time = f"{h:02d}:{m:02d}"
     exe, args, cwd = get_runner_details(notify=notify)
     arg_str = " ".join(f'"{a}"' if " " in a else a for a in args)
 
+    freq = frequency.lower()
+    if freq == "once":
+        sched_desc = f"Once at {formatted_time}"
+        trigger_code = f"""
+$targetDt = (Get-Date).Date.AddHours({h}).AddMinutes({m})
+if ($targetDt -le (Get-Date)) {{ $targetDt = $targetDt.AddDays(1) }}
+$trigger = New-ScheduledTaskTrigger -Once -At $targetDt
+"""
+    elif freq in ("weekdays", "weekday", "workdays"):
+        sched_desc = f"Weekdays at {formatted_time}"
+        trigger_code = f"$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At '{formatted_time}'"
+    else:
+        sched_desc = f"Daily at {formatted_time}"
+        trigger_code = f"$trigger = New-ScheduledTaskTrigger -Daily -At '{formatted_time}'"
+
     ps_script = f"""
 $action = New-ScheduledTaskAction -Execute '{exe}' -Argument '{arg_str}' -WorkingDirectory '{cwd}'
-$trigger = New-ScheduledTaskTrigger -Daily -At '{formatted_time}'
+{trigger_code}
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $action -Trigger $trigger -Settings $settings -Force
 """
@@ -151,12 +166,14 @@ Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $action -Trigger $trigger
     if res.returncode != 0:
         return {"success": False, "message": f"Failed to register Windows scheduled task: {res.stderr.strip() or res.stdout.strip()}"}
 
-    append_schedule_log(f"Scheduled task installed: Daily at {formatted_time} (Windows Task Scheduler)")
+    append_schedule_log(f"Scheduled task installed: {sched_desc} (Windows Task Scheduler)")
     return {
         "success": True,
         "task_name": TASK_NAME,
         "platform": "Windows Task Scheduler",
         "time": formatted_time,
+        "frequency": freq,
+        "schedule": sched_desc,
         "notify": notify,
         "command": f"{exe} {arg_str}",
         "working_dir": cwd,
@@ -377,10 +394,10 @@ def _remove_macos() -> dict[str, Any]:
 # Cross-Platform Unified API
 # ---------------------------------------------------------------------------
 
-def install_schedule(time_str: str = "07:30", notify: bool = True) -> dict[str, Any]:
+def install_schedule(time_str: str = "07:30", notify: bool = True, frequency: str = "daily") -> dict[str, Any]:
     system = platform.system().lower()
     if system == "windows":
-        return _install_windows(time_str, notify=notify)
+        return _install_windows(time_str, notify=notify, frequency=frequency)
     elif system == "darwin":
         return _install_macos(time_str, notify=notify)
     else:

@@ -433,9 +433,10 @@ def run_poke_at(
         run_poke_watch_loop(interval_arg=watch_interval, force=force, agent_id=agent_id, notify=notify)
 
 
-def run_schedule_install_cmd(time_str: str = "07:30", notify: bool = True) -> None:
-    console.print(f"\n[bold cyan]⚡ Registering OS-Level Scheduled Priming Task at {time_str}...[/bold cyan]")
-    res = install_schedule(time_str=time_str, notify=notify)
+def run_schedule_install_cmd(time_str: str = "07:30", notify: bool = True, frequency: str = "daily") -> None:
+    freq_desc = frequency.lower()
+    console.print(f"\n[bold cyan]⚡ Registering OS-Level Scheduled Priming Task ({freq_desc}) for {time_str}...[/bold cyan]")
+    res = install_schedule(time_str=time_str, notify=notify, frequency=freq_desc)
     if res.get("success"):
         console.print(f"[bold green]✔ Successfully registered scheduled priming task![/bold green]\n")
         table = Table(show_header=False, box=None)
@@ -443,7 +444,7 @@ def run_schedule_install_cmd(time_str: str = "07:30", notify: bool = True) -> No
         table.add_column("Value", style="cyan")
         table.add_row("Task Name:", res.get("task_name", "AgentQuotaTrackerMorningPriming"))
         table.add_row("Platform:", res.get("platform", "Unknown"))
-        table.add_row("Schedule:", f"Daily at {res.get('time', time_str)}")
+        table.add_row("Schedule:", res.get("schedule", f"{freq_desc.capitalize()} at {res.get('time', time_str)}"))
         table.add_row("Desktop Alerts:", "Enabled (--notify)" if notify else "Disabled")
         if "command" in res:
             table.add_row("Execution:", str(res["command"]))
@@ -657,6 +658,18 @@ Examples:
         help="Uninstall and remove the OS-level background scheduled morning priming task.",
     )
     parser.add_argument(
+        "--frequency",
+        type=str,
+        default="daily",
+        choices=["daily", "once", "weekdays"],
+        help="Recurrence frequency for the background scheduled task: 'daily' (default), 'once', or 'weekdays'.",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run the background scheduled task exactly once at the target time.",
+    )
+    parser.add_argument(
         "subcommand",
         nargs="?",
         choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule"],
@@ -684,8 +697,9 @@ Examples:
         return
 
     # Handle schedule commands
+    sched_freq = "once" if args.once else args.frequency
     if args.schedule_install is not None:
-        run_schedule_install_cmd(time_str=args.schedule_install, notify=args.notify)
+        run_schedule_install_cmd(time_str=args.schedule_install, notify=args.notify, frequency=sched_freq)
         return
     if args.schedule_status:
         run_schedule_status_cmd()
@@ -698,13 +712,13 @@ Examples:
         sub_action = (args.extra_args[0].lower() if args.extra_args else "status")
         if sub_action in ("install", "add", "set"):
             t_str = args.extra_args[1] if len(args.extra_args) > 1 else "07:30"
-            run_schedule_install_cmd(time_str=t_str, notify=args.notify)
+            run_schedule_install_cmd(time_str=t_str, notify=args.notify, frequency=sched_freq)
         elif sub_action in ("remove", "uninstall", "delete", "rm"):
             run_schedule_remove_cmd()
         elif sub_action in ("status", "check", "show", "info"):
             run_schedule_status_cmd()
         elif ":" in sub_action:
-            run_schedule_install_cmd(time_str=sub_action, notify=args.notify)
+            run_schedule_install_cmd(time_str=sub_action, notify=args.notify, frequency=sched_freq)
         else:
             run_schedule_status_cmd()
         return

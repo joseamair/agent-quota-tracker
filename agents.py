@@ -1786,15 +1786,30 @@ def get_runner_details(notify: bool = True) -> tuple[str, list[str], str]:
         return sys.executable, args, repo_str
 
 
-def _install_windows(time_str: str, notify: bool = True) -> dict[str, Any]:
+def _install_windows(time_str: str, notify: bool = True, frequency: str = "daily") -> dict[str, Any]:
     h, m = validate_time_format(time_str)
     formatted_time = f"{h:02d}:{m:02d}"
     exe, args, cwd = get_runner_details(notify=notify)
     arg_str = " ".join(f'"{a}"' if " " in a else a for a in args)
 
+    freq = frequency.lower()
+    if freq == "once":
+        sched_desc = f"Once at {formatted_time}"
+        trigger_code = f"""
+$targetDt = (Get-Date).Date.AddHours({h}).AddMinutes({m})
+if ($targetDt -le (Get-Date)) {{ $targetDt = $targetDt.AddDays(1) }}
+$trigger = New-ScheduledTaskTrigger -Once -At $targetDt
+"""
+    elif freq in ("weekdays", "weekday", "workdays"):
+        sched_desc = f"Weekdays at {formatted_time}"
+        trigger_code = f"$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At '{formatted_time}'"
+    else:
+        sched_desc = f"Daily at {formatted_time}"
+        trigger_code = f"$trigger = New-ScheduledTaskTrigger -Daily -At '{formatted_time}'"
+
     ps_script = f"""
 $action = New-ScheduledTaskAction -Execute '{exe}' -Argument '{arg_str}' -WorkingDirectory '{cwd}'
-$trigger = New-ScheduledTaskTrigger -Daily -At '{formatted_time}'
+{trigger_code}
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $action -Trigger $trigger -Settings $settings -Force
 """
@@ -1806,12 +1821,14 @@ Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $action -Trigger $trigger
     if res.returncode != 0:
         return {"success": False, "message": f"Failed to register Windows scheduled task: {res.stderr.strip() or res.stdout.strip()}"}
 
-    append_schedule_log(f"Scheduled task installed: Daily at {formatted_time} (Windows Task Scheduler)")
+    append_schedule_log(f"Scheduled task installed: {sched_desc} (Windows Task Scheduler)")
     return {
         "success": True,
         "task_name": TASK_NAME,
         "platform": "Windows Task Scheduler",
         "time": formatted_time,
+        "frequency": freq,
+        "schedule": sched_desc,
         "notify": notify,
         "command": f"{exe} {arg_str}",
         "working_dir": cwd,
@@ -2020,10 +2037,10 @@ def _remove_macos() -> dict[str, Any]:
     return {"success": True, "message": f"Task '{TASK_NAME}' removed from launchd."}
 
 
-def install_schedule(time_str: str = "07:30", notify: bool = True) -> dict[str, Any]:
+def install_schedule(time_str: str = "07:30", notify: bool = True, frequency: str = "daily") -> dict[str, Any]:
     system = platform.system().lower()
     if system == "windows":
-        return _install_windows(time_str, notify=notify)
+        return _install_windows(time_str, notify=notify, frequency=frequency)
     elif system == "darwin":
         return _install_macos(time_str, notify=notify)
     else:
@@ -2050,14 +2067,15 @@ def remove_schedule() -> dict[str, Any]:
         return _remove_linux()
 
 
-def run_schedule_install_cmd(time_str: str = "07:30", notify: bool = True) -> None:
-    print(f"\n⚡ Registering OS-Level Scheduled Priming Task at {time_str}...")
-    res = install_schedule(time_str=time_str, notify=notify)
+def run_schedule_install_cmd(time_str: str = "07:30", notify: bool = True, frequency: str = "daily") -> None:
+    freq_desc = frequency.lower()
+    print(f"\n⚡ Registering OS-Level Scheduled Priming Task ({freq_desc}) at {time_str}...")
+    res = install_schedule(time_str=time_str, notify=notify, frequency=freq_desc)
     if res.get("success"):
         print("✔ Successfully registered scheduled priming task!\n")
         print(f"  Task Name:      {res.get('task_name', 'AgentQuotaTrackerMorningPriming')}")
         print(f"  Platform:       {res.get('platform', 'Unknown')}")
-        print(f"  Schedule:       Daily at {res.get('time', time_str)}")
+        print(f"  Schedule:       {res.get('schedule', f'{freq_desc.capitalize()} at {time_str}')}")
         print(f"  Desktop Alerts: {'Enabled (--notify)' if notify else 'Disabled'}")
         if "command" in res:
             print(f"  Execution:      {res['command']}")
@@ -2258,6 +2276,18 @@ Examples:
         help="Uninstall and remove the OS-level background scheduled morning priming task.",
     )
     parser.add_argument(
+        "--frequency",
+        type=str,
+        default="daily",
+        choices=["daily", "once", "weekdays"],
+        help="Recurrence frequency for the background scheduled task: 'daily' (default), 'once', or 'weekdays'.",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run the background scheduled task exactly once at the target time.",
+    )
+    parser.add_argument(
         "cmd",
         nargs="?",
         choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule"],
@@ -2285,8 +2315,9 @@ Examples:
         return
 
     # Handle schedule commands
+    sched_freq = "once" if args.once else args.frequency
     if args.schedule_install is not None:
-        run_schedule_install_cmd(time_str=args.schedule_install, notify=args.notify)
+        run_schedule_install_cmd(time_str=args.schedule_install, notify=args.notify, frequency=sched_freq)
         return
     if args.schedule_status:
         run_schedule_status_cmd()
@@ -2299,13 +2330,13 @@ Examples:
         sub_action = (args.extra_args[0].lower() if args.extra_args else "status")
         if sub_action in ("install", "add", "set"):
             t_str = args.extra_args[1] if len(args.extra_args) > 1 else "07:30"
-            run_schedule_install_cmd(time_str=t_str, notify=args.notify)
+            run_schedule_install_cmd(time_str=t_str, notify=args.notify, frequency=sched_freq)
         elif sub_action in ("remove", "uninstall", "delete", "rm"):
             run_schedule_remove_cmd()
         elif sub_action in ("status", "check", "show", "info"):
             run_schedule_status_cmd()
         elif ":" in sub_action:
-            run_schedule_install_cmd(time_str=sub_action, notify=args.notify)
+            run_schedule_install_cmd(time_str=sub_action, notify=args.notify, frequency=sched_freq)
         else:
             run_schedule_status_cmd()
         return

@@ -88,7 +88,7 @@ def test_codex_active_after_fresh_poke():
 
 def test_claude_idle_zero_utilization():
     tracker = ClaudeTracker("work")
-    future_reset = (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat()
+    future_reset = (datetime.now(timezone.utc) + timedelta(hours=5)).isoformat()
     mock_live = {
         "five_hour": {
             "utilization": 0.0,
@@ -180,7 +180,7 @@ def test_standalone_agents_py_codex_idle():
 
 def test_standalone_agents_py_claude_idle():
     import agents
-    future_reset = (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat()
+    future_reset = (datetime.now(timezone.utc) + timedelta(hours=5)).isoformat()
     mock_live = {
         "five_hour": {
             "utilization": 0.0,
@@ -312,7 +312,7 @@ def test_claude_standard_installation_fallback(tmp_path):
 def test_claude_poke_uses_claude_bin_when_ccs_absent():
     tracker = ClaudeTracker("default")
     with patch.object(tracker, "get_status") as mock_status:
-        mock_status.return_value = MagicMock(is_active=False)
+        mock_status.return_value = MagicMock(is_active=False, weekly_used_percent=None, locked_reason=None)
         with patch("shutil.which") as mock_which:
             # ccs is absent, claude is present
             mock_which.side_effect = lambda name: "C:\\bin\\claude.exe" if "claude" in name else None
@@ -323,6 +323,166 @@ def test_claude_poke_uses_claude_bin_when_ccs_absent():
                 args = mock_run.call_args[0][0]
                 assert "claude" in args[0]
                 assert "-p" in args
+
+
+def test_claude_active_zero_utilization_mid_window():
+    tracker = ClaudeTracker("work2")
+    # Reset in 18 minutes, but 0.0% utilization and poke was > 10m ago
+    future_reset = (datetime.now(timezone.utc) + timedelta(minutes=18)).isoformat()
+    mock_live = {
+        "five_hour": {
+            "utilization": 0.0,
+            "resets_at": future_reset,
+        },
+        "seven_day": {
+            "utilization": 84.0,
+            "resets_at": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
+        },
+    }
+    with patch.object(tracker, "_fetch_live_usage", return_value=mock_live):
+        with patch("agent_quota_tracker.trackers.claude.get_agent_state", return_value={"last_poked_at": None}):
+            status = tracker.get_status()
+            assert status.is_active is True
+            assert status.status_label == "Active"
+            assert 1000 <= status.time_remaining_seconds <= 1100
+            assert status.resets_at is not None
+
+
+def test_claude_poke_skipped_weekly_exhausted():
+    tracker = ClaudeTracker("personal")
+    # Inactive 5h window, but 100% weekly usage
+    future_reset = (datetime.now(timezone.utc) + timedelta(hours=5)).isoformat()
+    mock_live = {
+        "five_hour": {
+            "utilization": 0.0,
+            "resets_at": future_reset,
+        },
+        "seven_day": {
+            "utilization": 100.0,
+            "resets_at": (datetime.now(timezone.utc) + timedelta(hours=30)).isoformat(),
+        },
+        "limits": [
+            {
+                "kind": "weekly_all",
+                "percent": 100,
+                "severity": "critical",
+                "resets_at": (datetime.now(timezone.utc) + timedelta(hours=30)).isoformat(),
+            }
+        ],
+    }
+    with patch.object(tracker, "_fetch_live_usage", return_value=mock_live):
+        with patch("agent_quota_tracker.trackers.claude.get_agent_state", return_value={"last_poked_at": None}):
+            res = tracker.poke(force=False)
+            assert res.action_taken == "skipped"
+            assert "Weekly quota exhausted" in res.message
+            assert res.verified_active is False
+
+
+def test_claude_poke_forced_when_weekly_exhausted():
+    tracker = ClaudeTracker("personal")
+    future_reset = (datetime.now(timezone.utc) + timedelta(hours=5)).isoformat()
+    mock_live = {
+        "five_hour": {
+            "utilization": 0.0,
+            "resets_at": future_reset,
+        },
+        "seven_day": {
+            "utilization": 100.0,
+            "resets_at": (datetime.now(timezone.utc) + timedelta(hours=30)).isoformat(),
+        },
+    }
+    with patch.object(tracker, "_fetch_live_usage", return_value=mock_live):
+        with patch("agent_quota_tracker.trackers.claude.get_agent_state", return_value={"last_poked_at": None}):
+            with patch("shutil.which", return_value="claude.exe"):
+                with patch("subprocess.run") as mock_run:
+                    mock_run.return_value = MagicMock(stdout="Hello there!", stderr="")
+                    # When forced, poke proceeds despite weekly 100%
+                    tracker.poke(force=True)
+                    assert mock_run.called
+
+
+def test_agy_active_zero_usage_mid_window():
+    from agent_quota_tracker.trackers.agy import AGYTracker
+    tracker = AGYTracker()
+    # Reset in 25 minutes, 100% remaining fraction (0.0% used)
+    future_reset = (datetime.now(timezone.utc) + timedelta(minutes=25)).isoformat()
+    mock_data = {
+        "groups": [
+            {
+                "name": "Gemini Models",
+                "buckets": [
+                    {
+                        "id": "gemini-5h",
+                        "window": "5h",
+                        "remaining_fraction": 1.0,
+                        "reset_time": future_reset,
+                    }
+                ],
+            }
+        ]
+    }
+    with patch.object(tracker, "_fetch_live_quota", return_value=mock_data):
+        with patch("agent_quota_tracker.trackers.agy.get_agent_state", return_value={"last_poked_at": None}):
+            status = tracker.get_status()
+            assert status.is_active is True
+            assert status.status_label == "Active"
+            assert 1400 <= status.time_remaining_seconds <= 1550
+
+
+def test_agy_poke_skipped_weekly_exhausted():
+    from agent_quota_tracker.trackers.agy import AGYTracker
+    tracker = AGYTracker()
+    future_reset = (datetime.now(timezone.utc) + timedelta(hours=5)).isoformat()
+    mock_data = {
+        "groups": [
+            {
+                "name": "Gemini Models",
+                "buckets": [
+                    {
+                        "id": "gemini-5h",
+                        "window": "5h",
+                        "remaining_fraction": 1.0,
+                        "reset_time": future_reset,
+                    },
+                    {
+                        "id": "gemini-weekly",
+                        "window": "weekly",
+                        "remaining_fraction": 0.0,  # 100% used
+                        "reset_time": (datetime.now(timezone.utc) + timedelta(days=2)).isoformat(),
+                    }
+                ],
+            }
+        ]
+    }
+    with patch.object(tracker, "_fetch_live_quota", return_value=mock_data):
+        with patch("agent_quota_tracker.trackers.agy.get_agent_state", return_value={"last_poked_at": None}):
+            res = tracker.poke(force=False)
+            assert res.action_taken == "skipped"
+            assert "Weekly quota exhausted" in res.message
+
+
+def test_codex_poke_skipped_weekly_exhausted():
+    tracker = CodexTracker()
+    now_ts = time.time()
+    mock_limits = {
+        "rateLimits": {
+            "primary": {
+                "usedPercent": 0,
+                "windowDurationMins": 300,
+                "resetsAt": int(now_ts + 18000),
+            },
+            "secondary": {
+                "usedPercent": 100,
+                "resetsAt": int(now_ts + 86400),
+            },
+        }
+    }
+    with patch.object(tracker, "_query_app_server_limits", return_value=mock_limits):
+        with patch("agent_quota_tracker.trackers.codex.get_agent_state", return_value={"last_poked_at": None}):
+            res = tracker.poke(force=False)
+            assert res.action_taken == "skipped"
+            assert "Weekly quota exhausted" in res.message
+
 
 
 

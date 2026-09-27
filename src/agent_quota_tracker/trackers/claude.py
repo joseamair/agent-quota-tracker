@@ -183,7 +183,9 @@ class ClaudeTracker(BaseTracker):
         # Check if idle:
         # Anthropic provides static prospective 5-hour time slots (resets_at)
         # even when an account has 0.0% utilization and has not been used.
-        # It is only active if quota has been used or if a fresh poke occurred within 10 minutes.
+        # It is only sliding idle if resets_at is sitting near the 5-hour ceiling (~300m)
+        # without any token usage or fresh poke. If remaining_seconds < ~5h, the window
+        # is already counting down and active.
         has_fresh_poke = False
         if last_poked_at:
             try:
@@ -193,11 +195,12 @@ class ClaudeTracker(BaseTracker):
             except Exception:
                 pass
 
-        is_idle = (used_pct == 0.0 and not has_fresh_poke)
+        remaining_secs = int((resets_at_dt - now).total_seconds()) if (resets_at_dt and resets_at_dt > now) else 0
+        is_sliding_idle = (used_pct == 0.0 and not has_fresh_poke and remaining_secs >= (300 * 60 - 45))
 
-        if resets_at_dt is not None and resets_at_dt > now and not is_idle:
+        if resets_at_dt is not None and resets_at_dt > now and not is_sliding_idle:
             is_active = True
-            remaining_seconds = max(0, int((resets_at_dt - now).total_seconds()))
+            remaining_seconds = remaining_secs
             status_label = "Active"
         else:
             is_active = False
@@ -211,6 +214,14 @@ class ClaudeTracker(BaseTracker):
         weekly_used_pct = float(seven_day.get("utilization")) if seven_day.get("utilization") is not None else None
         weekly_resets_at = seven_day.get("resets_at")
         weekly_hours, weekly_reset_str = calculate_weekly_reset(weekly_resets_at)
+
+        # Locked reason
+        locked_reason = five_hour.get("locked_reason") or seven_day.get("locked_reason")
+        limits = (live_data.get("limits") or []) if live_data else []
+        for lim in limits:
+            if isinstance(lim, dict) and lim.get("severity") == "critical" and lim.get("percent", 0) >= 100:
+                if not locked_reason:
+                    locked_reason = "weekly_limit_exhausted"
 
         resets_at_ts = resets_at_dt.timestamp() if resets_at_dt else None
 
@@ -232,11 +243,13 @@ class ClaudeTracker(BaseTracker):
             weekly_reset_str=weekly_reset_str,
             category=self._category,
             last_poked_at=last_poked_at,
+            locked_reason=locked_reason,
             details={
                 "profile": self.profile,
                 "fetched_at_ms": cached_usage.get("fetchedAtMs") if cached_usage else None,
                 "five_hour_raw": five_hour,
                 "seven_day_raw": seven_day,
+                "locked_reason": locked_reason,
             },
         )
 
@@ -248,10 +261,33 @@ class ClaudeTracker(BaseTracker):
                 agent_id=self.agent_id,
                 agent_name=self.display_name,
                 action_taken="skipped",
-                message=f"Window already active ({status.time_remaining_str} remaining, {status.used_percent}% used). Skipped poke.",
+                message=f"5h window is already active ({status.time_remaining_str} remaining, {status.used_percent}% used). Skipped poke.",
                 time_remaining_str=status.time_remaining_str,
                 used_percent=status.used_percent,
                 verified_active=True,
+            )
+
+        if not force and isinstance(status.weekly_used_percent, (int, float)) and status.weekly_used_percent >= 100.0:
+            reset_msg = f", resets in {status.weekly_remaining_hours:.1f}h" if status.weekly_remaining_hours is not None else ""
+            return PokeResult(
+                agent_id=self.agent_id,
+                agent_name=self.display_name,
+                action_taken="skipped",
+                message=f"Weekly quota exhausted ({status.weekly_used_percent:.1f}% used{reset_msg}). Skipped poke (use --force to override).",
+                time_remaining_str="Inactive",
+                used_percent=status.used_percent,
+                verified_active=False,
+            )
+
+        if not force and status.locked_reason:
+            return PokeResult(
+                agent_id=self.agent_id,
+                agent_name=self.display_name,
+                action_taken="skipped",
+                message=f"Account locked ({status.locked_reason}). Skipped poke (use --force to override).",
+                time_remaining_str="Inactive",
+                used_percent=status.used_percent,
+                verified_active=False,
             )
 
         ccs_bin = shutil.which("ccs") or shutil.which("ccs.cmd")

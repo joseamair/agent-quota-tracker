@@ -100,16 +100,18 @@ Write-Host "All PowerShell scripts validate cleanly!"
 
 ## 📋 Active Roadmap Issues Ready for Implementation
 
-The following 6 issues are currently open on GitHub and scheduled for **v1.2.0 & Beyond**:
+The following 5 issues are currently open on GitHub and scheduled for **v1.2.0 & Beyond**:
 
 | Issue | Title | Complexity | Suggested Approach |
 |---|---|---|---|
-| [**#20**](https://github.com/joseamair/agent-quota-tracker/issues/20) | **Native Desktop Toast Notifications & System Tray Indicator** | Medium | Integrate native OS toast alerts via PowerShell `New-BurntToastNotification` / WinRT on Windows, `notify-send` on Linux, and `osascript` on macOS. Optional tray icon using `pystray`. |
 | [**#21**](https://github.com/joseamair/agent-quota-tracker/issues/21) | **Additional Agent Trackers (Cursor, Windsurf, Copilot, Aider)** | Medium | Add tracker classes under `src/agent_quota_tracker/trackers/` implementing `AgentTracker`. Extract fast requests from Cursor SQLite/tokens and Windsurf config. |
 | [**#22**](https://github.com/joseamair/agent-quota-tracker/issues/22) | **OS-Level Automated Priming Task Generator (`--schedule-install`)** | Medium | Implement CLI commands `--schedule-install`, `--schedule-status`, `--schedule-remove` via Windows Task Scheduler (`schtasks.exe`), systemd-timer, or launchd. |
 | [**#23**](https://github.com/joseamair/agent-quota-tracker/issues/23) | **Local SQLite Historical Analytics & Burndown Charts** | Medium | Add SQLite database at `~/.agent_quota_tracker/history.db` logging quota events. Add `agents --analytics` and embedded SVG chart in `dashboard.html`. |
 | [**#24**](https://github.com/joseamair/agent-quota-tracker/issues/24) | **Web Dashboard v2 (Live Push & Interactive Controls)** | Medium | Add Server-Sent Events (SSE) route `/api/stream` to `server.py`. Add per-card poke buttons and theme switcher (Dark, Cyberpunk OLED, Light) to `dashboard.html`. |
 | [**#25**](https://github.com/joseamair/agent-quota-tracker/issues/25) | **Shell Prompt & Status Bar Integration (`--prompt-format`)** | Low / Quick Win | Add sub-10ms cached status segment reader `agents --prompt-format` for Starship, Oh-My-Posh, and tmux. |
+
+### Recently Delivered
+- [**#20**](https://github.com/joseamair/agent-quota-tracker/issues/20) - **Native Desktop Toast Notifications (`--notify`, `--test-notify`)**: Merged in PR #26. Zero third-party dependencies, cross-platform (Windows, macOS, Linux), full Tri-Engine Parity.
 
 ---
 

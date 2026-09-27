@@ -676,7 +676,14 @@ if ($TestNotify) {
     Write-Host "⚡ Sending test desktop notification..." -ForegroundColor Cyan
     $ok = Send-DesktopNotification -Title "⚡ Agent Quota Tracker" -Message "Desktop notifications are working perfectly!"
     if ($ok) {
-        Write-Host "✔ Notification dispatched successfully!`n" -ForegroundColor Green
+        Write-Host "✔ Notification dispatched successfully!" -ForegroundColor Green
+        try {
+            $tVal = (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\PushNotifications' -ErrorAction SilentlyContinue).ToastEnabled
+            if ($null -ne $tVal -and $tVal -eq 0) {
+                Write-Host "ℹ Note: Windows Notifications are turned OFF in your Windows Settings (System > Notifications). Enable notifications to see visual toast alerts." -ForegroundColor Yellow
+            }
+        } catch {}
+        Write-Host ""
     } else {
         Write-Host "✖ Notification failed to dispatch.`n" -ForegroundColor Red
     }

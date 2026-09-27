@@ -22,7 +22,7 @@ from rich.text import Text
 from agent_quota_tracker.core import get_all_statuses, poke_all
 from agent_quota_tracker.dashboard import start_dashboard_server
 from agent_quota_tracker.models import AgentStatus, PokeResult
-from agent_quota_tracker.notifications import send_notification
+from agent_quota_tracker.notifications import are_notifications_enabled, send_notification
 from agent_quota_tracker.trackers.base import (
     format_duration,
     parse_duration,
@@ -543,7 +543,10 @@ Examples:
         console.print("[bold cyan]⚡ Sending test desktop notification...[/bold cyan]")
         ok = send_notification("⚡ Agent Quota Tracker", "Desktop notifications are working perfectly!")
         if ok:
-            console.print("[bold green]✔ Notification dispatched successfully![/bold green]\n")
+            console.print("[bold green]✔ Notification dispatched successfully![/bold green]")
+            if not are_notifications_enabled():
+                console.print("[dim yellow]ℹ Note: Windows Notifications are turned OFF in your Windows Settings (System > Notifications). Enable notifications to see visual toast alerts.[/dim yellow]")
+            console.print()
         else:
             console.print("[bold red]✖ Notification failed to dispatch.[/bold red]\n")
         return

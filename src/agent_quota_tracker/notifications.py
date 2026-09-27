@@ -76,3 +76,21 @@ $notifier.Show($toast)
         return False
 
     return False
+
+
+def are_notifications_enabled() -> bool:
+    """Checks whether the OS has enabled notifications (currently checks Windows registry)."""
+    if sys.platform != "win32":
+        return True
+    try:
+        import winreg
+
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\PushNotifications",
+        ) as key:
+            val, _ = winreg.QueryValueEx(key, "ToastEnabled")
+            return bool(val != 0)
+    except Exception:
+        return True
+

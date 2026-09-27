@@ -978,6 +978,23 @@ $notifier.Show($toast)
     return False
 
 
+def are_notifications_enabled() -> bool:
+    if sys.platform != "win32":
+        return True
+    try:
+        import winreg
+
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\PushNotifications",
+        ) as key:
+            val, _ = winreg.QueryValueEx(key, "ToastEnabled")
+            return bool(val != 0)
+    except Exception:
+        return True
+
+
+
 def run_poke_command(force: bool = False, agent_id: Optional[str] = None, notify: bool = False) -> list[dict]:
     mode_str = " (FORCE mode enabled)" if force else ""
     print(f"\n⚡ [POKE] Checking 5-hour rolling threshold windows{mode_str}...\n")
@@ -1582,7 +1599,10 @@ Examples:
         print("⚡ Sending test desktop notification...")
         ok = send_notification("⚡ Agent Quota Tracker", "Desktop notifications are working perfectly!")
         if ok:
-            print("✔ Notification dispatched successfully!\n")
+            print("✔ Notification dispatched successfully!")
+            if not are_notifications_enabled():
+                print("ℹ Note: Windows Notifications are turned OFF in your Windows Settings (System > Notifications). Enable notifications to see visual toast alerts.")
+            print()
         else:
             print("✖ Notification failed to dispatch.\n")
         return

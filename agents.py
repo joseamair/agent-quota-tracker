@@ -68,6 +68,196 @@ def update_agent_state(agent_id: str, updates: dict[str, Any]) -> None:
         pass
 
 
+def get_cache_dir() -> Path:
+    d = Path(os.path.expanduser("~")) / ".agent_quota_tracker"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def get_cache_file() -> Path:
+    p1 = Path(os.path.expanduser("~")) / ".agent_quota_tracker" / "cache.json"
+    p2 = Path(os.path.expanduser("~")) / ".agents_dashboard" / "cache.json"
+    if p1.exists():
+        return p1
+    if p2.exists():
+        return p2
+    p1.parent.mkdir(parents=True, exist_ok=True)
+    return p1
+
+
+def save_cache(statuses: list[Any]) -> None:
+    cache_file = get_cache_file()
+    now_ts = time.time()
+    now_iso = datetime.now(timezone.utc).astimezone().isoformat()
+    accounts_data = [s.to_dict() if hasattr(s, "to_dict") else s for s in statuses]
+    active_count = sum(1 for s in statuses if getattr(s, "is_active", False))
+    payload = {
+        "updated_at": now_iso,
+        "updated_at_timestamp": now_ts,
+        "active_count": active_count,
+        "total_count": len(statuses),
+        "accounts": accounts_data,
+    }
+    try:
+        tmp_file = cache_file.with_suffix(".tmp")
+        tmp_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        tmp_file.replace(cache_file)
+    except Exception:
+        try:
+            cache_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+
+def load_cache() -> Optional[dict[str, Any]]:
+    cache_file = get_cache_file()
+    if not cache_file.exists():
+        return None
+    try:
+        data = json.loads(cache_file.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and "accounts" in data:
+            return data
+    except Exception:
+        return None
+    return None
+
+
+def format_duration_short(seconds: int) -> str:
+    if seconds <= 0:
+        return "0m"
+    hours, remainder = divmod(seconds, 3600)
+    minutes = round(remainder / 60)
+    if hours > 0:
+        return f"{hours}h{minutes:02d}m" if minutes > 0 else f"{hours}h"
+    return f"{max(1, minutes)}m"
+
+
+def compute_live_prompt_data(cache: dict[str, Any], now_ts: Optional[float] = None) -> dict[str, Any]:
+    if now_ts is None:
+        now_ts = time.time()
+
+    accounts = cache.get("accounts", [])
+    active_accounts = []
+
+    for acc in accounts:
+        if not acc.get("is_active", False):
+            continue
+
+        resets_at_ts = acc.get("resets_at_timestamp")
+        if resets_at_ts is not None:
+            remaining = resets_at_ts - now_ts
+        else:
+            resets_at_str = acc.get("resets_at")
+            if resets_at_str:
+                try:
+                    cleaned = resets_at_str.replace("Z", "+00:00")
+                    dt = datetime.fromisoformat(cleaned)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    remaining = (dt - datetime.now(timezone.utc)).total_seconds()
+                except Exception:
+                    remaining = acc.get("time_remaining_seconds", 0)
+            else:
+                remaining = acc.get("time_remaining_seconds", 0)
+
+        if remaining > 0:
+            active_accounts.append((acc, int(remaining)))
+
+    active_count = len(active_accounts)
+    total_count = len(accounts)
+
+    if active_count > 0:
+        min_rem_secs = min(rem for _, rem in active_accounts)
+        max_rem_secs = max(rem for _, rem in active_accounts)
+        min_remaining = format_duration_short(min_rem_secs)
+        max_remaining = format_duration_short(max_rem_secs)
+        status_str = "Active"
+        icon_str = "⚡"
+    else:
+        min_rem_secs = 0
+        max_rem_secs = 0
+        min_remaining = "Idle"
+        max_remaining = "Idle"
+        status_str = "Idle"
+        icon_str = "○"
+
+    pct = round((active_count / total_count * 100), 0) if total_count > 0 else 0
+
+    return {
+        "active": active_count,
+        "total": total_count,
+        "min_remaining": min_remaining,
+        "min_remaining_seconds": min_rem_secs,
+        "max_remaining": max_remaining,
+        "max_remaining_seconds": max_rem_secs,
+        "status": status_str,
+        "icon": icon_str,
+        "percent": f"{int(pct)}%",
+        "updated_at": cache.get("updated_at"),
+    }
+
+
+def format_prompt(
+    preset_or_format: Optional[str] = None,
+    cache: Optional[dict[str, Any]] = None,
+    refresh: bool = False,
+) -> str:
+    if refresh or cache is None:
+        if not refresh:
+            cache = load_cache()
+
+        if cache is None or refresh:
+            statuses = fetch_all_statuses()
+            save_cache(statuses)
+            cache = load_cache()
+
+    if not cache or "accounts" not in cache:
+        return "[🤖 No Quota Data]"
+
+    data = compute_live_prompt_data(cache)
+    preset = (preset_or_format or "default").strip()
+    preset_lower = preset.lower()
+
+    if preset_lower == "default":
+        if data["active"] > 0:
+            return f"[{data['icon']} {data['active']}/{data['total']} Active • {data['min_remaining']}]"
+        return f"[{data['icon']} 0/{data['total']} Active • Idle]"
+
+    elif preset_lower == "compact":
+        if data["active"] > 0:
+            return f"{data['icon']}{data['active']}/{data['total']} {data['min_remaining']}"
+        return f"{data['icon']}0/{data['total']}"
+
+    elif preset_lower == "minimal":
+        return f"🤖 {data['active']}/{data['total']}"
+
+    elif preset_lower == "tmux":
+        if data["active"] > 0:
+            return f"#[fg=yellow]⚡#[default] {data['active']}/{data['total']} ({data['min_remaining']})"
+        return f"#[fg=brightblack]○#[default] 0/{data['total']}"
+
+    elif preset_lower == "json":
+        return json.dumps(data)
+
+    formatted = preset
+    replacements = {
+        "{active}": str(data["active"]),
+        "{total}": str(data["total"]),
+        "{min_remaining}": data["min_remaining"],
+        "{min_remaining_seconds}": str(data["min_remaining_seconds"]),
+        "{max_remaining}": data["max_remaining"],
+        "{max_remaining_seconds}": str(data["max_remaining_seconds"]),
+        "{status}": data["status"],
+        "{icon}": data["icon"],
+        "{percent}": data["percent"],
+    }
+    for token, val in replacements.items():
+        formatted = formatted.replace(token, val)
+
+    return formatted
+
+
+
 def format_duration(seconds: int) -> str:
     if seconds <= 0:
         return "0s"
@@ -936,6 +1126,10 @@ def fetch_all_statuses() -> list[AgentInfo]:
         elif prov == "claude":
             prof = acc.get("profile") or aid
             statuses.append(get_claude_status(prof, name, category=cat))
+    try:
+        save_cache(statuses)
+    except Exception:
+        pass
     return statuses
 
 
@@ -1586,10 +1780,33 @@ Examples:
         help="Send a test desktop notification to verify OS notification settings and exit.",
     )
     parser.add_argument(
+        "--prompt",
+        action="store_true",
+        help="Output an ultra-fast (<15ms) cached status segment for Starship, Oh-My-Posh, tmux, or custom prompts.",
+    )
+    parser.add_argument(
+        "--prompt-format",
+        "--promptformat",
+        type=str,
+        default=None,
+        metavar="FORMAT",
+        help="Format template or preset ('default', 'compact', 'minimal', 'tmux', 'json') for shell prompt segment.",
+    )
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Force refresh live quota status from provider APIs when generating prompt segment.",
+    )
+    parser.add_argument(
         "cmd",
         nargs="?",
-        choices=["status", "poke", "dashboard", "poke-watch"],
-        help="Optional positional command alias ('status', 'poke', 'dashboard', 'poke-watch')",
+        choices=["status", "poke", "dashboard", "poke-watch", "prompt"],
+        help="Optional positional command alias ('status', 'poke', 'dashboard', 'poke-watch', 'prompt')",
+    )
+    parser.add_argument(
+        "extra_args",
+        nargs="*",
+        help=argparse.SUPPRESS,
     )
 
     args = parser.parse_args()
@@ -1605,6 +1822,14 @@ Examples:
             print()
         else:
             print("✖ Notification failed to dispatch.\n")
+        return
+
+    # Handle prompt command
+    is_prompt = args.prompt or (args.prompt_format is not None) or (args.cmd == "prompt")
+    if is_prompt:
+        format_spec = args.prompt_format or (args.extra_args[0] if args.extra_args else None)
+        output = format_prompt(preset_or_format=format_spec, refresh=args.refresh)
+        print(output)
         return
 
     is_status = args.status or args.cmd == "status"

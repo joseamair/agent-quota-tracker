@@ -100,7 +100,7 @@ Write-Host "All PowerShell scripts validate cleanly!"
 
 ## 📋 Active Roadmap Issues Ready for Implementation
 
-The following 5 issues are currently open on GitHub and scheduled for **v1.2.0 & Beyond**:
+The following 4 issues are currently open on GitHub and scheduled for **v1.2.0 & Beyond**:
 
 | Issue | Title | Complexity | Suggested Approach |
 |---|---|---|---|
@@ -108,9 +108,9 @@ The following 5 issues are currently open on GitHub and scheduled for **v1.2.0 &
 | [**#22**](https://github.com/joseamair/agent-quota-tracker/issues/22) | **OS-Level Automated Priming Task Generator (`--schedule-install`)** | Medium | Implement CLI commands `--schedule-install`, `--schedule-status`, `--schedule-remove` via Windows Task Scheduler (`schtasks.exe`), systemd-timer, or launchd. |
 | [**#23**](https://github.com/joseamair/agent-quota-tracker/issues/23) | **Local SQLite Historical Analytics & Burndown Charts** | Medium | Add SQLite database at `~/.agent_quota_tracker/history.db` logging quota events. Add `agents --analytics` and embedded SVG chart in `dashboard.html`. |
 | [**#24**](https://github.com/joseamair/agent-quota-tracker/issues/24) | **Web Dashboard v2 (Live Push & Interactive Controls)** | Medium | Add Server-Sent Events (SSE) route `/api/stream` to `server.py`. Add per-card poke buttons and theme switcher (Dark, Cyberpunk OLED, Light) to `dashboard.html`. |
-| [**#25**](https://github.com/joseamair/agent-quota-tracker/issues/25) | **Shell Prompt & Status Bar Integration (`--prompt-format`)** | Low / Quick Win | Add sub-10ms cached status segment reader `agents --prompt-format` for Starship, Oh-My-Posh, and tmux. |
 
 ### Recently Delivered
+- [**#25**](https://github.com/joseamair/agent-quota-tracker/issues/25) - **Shell Prompt & Status Bar Integration (`--prompt`, `--prompt-format`)**: Ultra-fast (<15ms) cached status segments for Starship, Oh-My-Posh, tmux, and PowerShell `$PROFILE` with dynamic mathematical countdown engine and full Tri-Engine Parity.
 - [**#20**](https://github.com/joseamair/agent-quota-tracker/issues/20) - **Native Desktop Toast Notifications (`--notify`, `--test-notify`)**: Merged in PR #26. Zero third-party dependencies, cross-platform (Windows, macOS, Linux), full Tri-Engine Parity.
 
 ---

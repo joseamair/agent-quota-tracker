@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Pure PowerShell implementation to track and poke 5-hour rate limit windows across Claude (CCS), Codex, and AGY.
 
@@ -44,6 +44,12 @@ param(
 
     [switch]$TestNotify,
 
+    [switch]$Prompt,
+
+    [string]$PromptFormat,
+
+    [switch]$Refresh,
+
     [Alias("h", "?")]
     [switch]$Help
 )
@@ -56,7 +62,7 @@ if ($Help) {
 Monitor rolling rate limit windows, track weekly resets, and poke AI accounts non-interactively.
 
 USAGE:
-  .\agents_native.ps1 [-Status] [-Poke] [-PokeWatch] [-PokeAt <HH:MM>] [-Interval <dur>] [-Force] [-TargetAgent <id>] [-Dashboard] [-Help]
+  .\agents_native.ps1 [-Status] [-Poke] [-PokeWatch] [-PokeAt <HH:MM>] [-Interval <dur>] [-Prompt] [-PromptFormat <fmt>] [-Force] [-TargetAgent <id>] [-Dashboard] [-Help]
 
 OPTIONS:
   -Status, -s            Display live 5-hour rolling threshold window state, time remaining,
@@ -72,11 +78,17 @@ OPTIONS:
   -TargetAgent, -a <id>  Target a specific agent (e.g. work, personal, work2, codex, agy).
   -Notify, -n            Send native OS desktop notifications on poke events and scheduled completions.
   -TestNotify            Send a test desktop notification to verify OS notification settings and exit.
+  -Prompt                Output an ultra-fast (<15ms) cached status segment for custom shell prompts.
+  -PromptFormat <str>    Format template or preset ('default', 'compact', 'minimal', 'tmux', 'json').
+  -Refresh               Force refresh live status from provider APIs for prompt segment.
   -Dashboard, -d         Launch the local web dashboard at http://localhost:5050.
   -Help, -h, -?          Show this help message and exit.
 
 EXAMPLES:
   .\agents_native.ps1 -Status
+  .\agents_native.ps1 -Prompt
+  .\agents_native.ps1 -PromptFormat compact
+  .\agents_native.ps1 -PromptFormat "Agents: {active}/{total}"
   .\agents_native.ps1 -Poke -Notify
   .\agents_native.ps1 -PokeWatch -Interval 30m -Notify
   .\agents_native.ps1 -PokeAt 07:30 -Notify
@@ -89,11 +101,201 @@ EXAMPLES:
 }
 
 # Default to Status if no action switch passed
-if (-not $Status -and -not $Poke -and -not $PokeWatch -and -not $PokeAt -and -not $Dashboard -and -not $Json -and -not $TestNotify -and $Watch -eq 0 -and -not $PSBoundParameters.ContainsKey('Watch')) {
+if (-not $Status -and -not $Poke -and -not $PokeWatch -and -not $PokeAt -and -not $Dashboard -and -not $Json -and -not $TestNotify -and -not $Prompt -and -not $PromptFormat -and $Watch -eq 0 -and -not $PSBoundParameters.ContainsKey('Watch')) {
     $Status = $true
 }
 
 $nowUtc = [DateTime]::UtcNow
+
+function Get-AgentCachePath {
+    $p1 = Join-Path $HOME ".agent_quota_tracker\cache.json"
+    $p2 = Join-Path $HOME ".agents_dashboard\cache.json"
+    if (Test-Path $p1) { return $p1 }
+    if (Test-Path $p2) { return $p2 }
+    $dir = Join-Path $HOME ".agent_quota_tracker"
+    if (-not (Test-Path $dir)) { $null = New-Item -ItemType Directory -Path $dir -Force }
+    return $p1
+}
+
+function Save-AgentCache($dataList) {
+    try {
+        $path = Get-AgentCachePath
+        $activeCount = 0
+        $accounts = @()
+        $now = [DateTimeOffset]::UtcNow
+        $nowTs = [double]$now.ToUnixTimeSeconds()
+
+        foreach ($a in $dataList) {
+            if (-not $a -or -not $a.Name) { continue }
+            if ($a.IsActive) { $activeCount++ }
+
+            $resetsAtTs = $null
+            if ($a.RemainingSeconds -gt 0) {
+                $resetsAtTs = $nowTs + $a.RemainingSeconds
+            }
+
+            $accounts += [ordered]@{
+                id = $a.Id
+                name = $a.Name
+                provider = $a.Provider
+                is_active = [bool]$a.IsActive
+                used_percent = $a.UsagePct
+                resets_at = $a.NextReset
+                resets_at_timestamp = $resetsAtTs
+                time_remaining_seconds = $a.RemainingSeconds
+                time_remaining_str = $a.Remaining
+                weekly_used_percent = $a.WkUsage
+                weekly_reset_str = $a.WeeklyReset
+            }
+        }
+
+        $payload = [ordered]@{
+            updated_at = (Get-Date).ToString("o")
+            updated_at_timestamp = $nowTs
+            active_count = $activeCount
+            total_count = $accounts.Count
+            accounts = $accounts
+        }
+        $json = $payload | ConvertTo-Json -Depth 5
+        $json | Set-Content -Path $path -Encoding UTF8
+    } catch {}
+}
+
+function Format-AgentDurationShort($seconds) {
+    if ($seconds -le 0) { return "0m" }
+    $hours = [math]::Floor($seconds / 3600)
+    $remainder = $seconds % 3600
+    $mins = [math]::Round($remainder / 60)
+    if ($hours -gt 0) {
+        if ($mins -gt 0) { return ("{0}h{1:D2}m" -f $hours, [int]$mins) }
+        return "${hours}h"
+    }
+    $m = [math]::Max(1, [int]$mins)
+    return "${m}m"
+}
+
+function Get-AgentPrompt([string]$Format = "default", [switch]$ForceRefresh) {
+    $cachePath = Get-AgentCachePath
+    $cache = $null
+
+    if (-not $ForceRefresh -and (Test-Path $cachePath)) {
+        try {
+            $raw = Get-Content -Path $cachePath -Raw -Encoding UTF8
+            $cache = $raw | ConvertFrom-Json
+        } catch {}
+    }
+
+    if ($ForceRefresh -or $null -eq $cache -or -not $cache.accounts) {
+        $freshData = Get-AgentData
+        Save-AgentCache $freshData
+        if (Test-Path $cachePath) {
+            try {
+                $raw = Get-Content -Path $cachePath -Raw -Encoding UTF8
+                $cache = $raw | ConvertFrom-Json
+            } catch {}
+        }
+    }
+
+    if ($null -eq $cache -or -not $cache.accounts) {
+        return "[🤖 No Quota Data]"
+    }
+
+    $now = [DateTimeOffset]::UtcNow
+    $nowTs = [double]$now.ToUnixTimeSeconds()
+
+    $activeAccounts = @()
+    foreach ($acc in $cache.accounts) {
+        if (-not $acc.is_active) { continue }
+        $remaining = 0
+        if ($null -ne $acc.resets_at_timestamp) {
+            $remaining = [double]$acc.resets_at_timestamp - $nowTs
+        } elseif ($null -ne $acc.time_remaining_seconds) {
+            $remaining = [double]$acc.time_remaining_seconds
+        }
+
+        if ($remaining -gt 0) {
+            $activeAccounts += [PSCustomObject]@{
+                Account = $acc
+                RemainingSeconds = [int]$remaining
+            }
+        }
+    }
+
+    $activeCount = $activeAccounts.Count
+    $totalCount = $cache.accounts.Count
+
+    if ($activeCount -gt 0) {
+        $minSecs = ($activeAccounts | Measure-Object -Property RemainingSeconds -Minimum).Minimum
+        $maxSecs = ($activeAccounts | Measure-Object -Property RemainingSeconds -Maximum).Maximum
+        $minRemaining = Format-AgentDurationShort $minSecs
+        $maxRemaining = Format-AgentDurationShort $maxSecs
+        $statusStr = "Active"
+        $iconStr = "⚡"
+    } else {
+        $minSecs = 0
+        $maxSecs = 0
+        $minRemaining = "Idle"
+        $maxRemaining = "Idle"
+        $statusStr = "Idle"
+        $iconStr = "○"
+    }
+
+    $pct = if ($totalCount -gt 0) { [math]::Round(($activeCount / $totalCount) * 100) } else { 0 }
+    $percentStr = "${pct}%"
+
+    $fmt = if ([string]::IsNullOrWhiteSpace($Format)) { "default" } else { $Format.Trim() }
+
+    switch ($fmt.ToLower()) {
+        "default" {
+            if ($activeCount -gt 0) {
+                return "[$iconStr $activeCount/$totalCount Active • $minRemaining]"
+            }
+            return "[$iconStr 0/$totalCount Active • Idle]"
+        }
+        "compact" {
+            if ($activeCount -gt 0) {
+                return "$iconStr$activeCount/$totalCount $minRemaining"
+            }
+            return "$iconStr 0/$totalCount"
+        }
+        "minimal" {
+            return "🤖 $activeCount/$totalCount"
+        }
+        "tmux" {
+            if ($activeCount -gt 0) {
+                return "#[fg=yellow]⚡#[default] $activeCount/$totalCount ($minRemaining)"
+            }
+            return "#[fg=brightblack]○#[default] 0/$totalCount"
+        }
+        "json" {
+            return ([ordered]@{
+                active = $activeCount
+                total = $totalCount
+                min_remaining = $minRemaining
+                min_remaining_seconds = $minSecs
+                max_remaining = $maxRemaining
+                max_remaining_seconds = $maxSecs
+                status = $statusStr
+                icon = $iconStr
+                percent = $percentStr
+                updated_at = $cache.updated_at
+            } | ConvertTo-Json -Compress)
+        }
+        default {
+            $res = $fmt
+            $res = $res.Replace("{active}", "$activeCount")
+            $res = $res.Replace("{total}", "$totalCount")
+            $res = $res.Replace("{min_remaining}", "$minRemaining")
+            $res = $res.Replace("{min_remaining_seconds}", "$minSecs")
+            $res = $res.Replace("{max_remaining}", "$maxRemaining")
+            $res = $res.Replace("{max_remaining_seconds}", "$maxSecs")
+            $res = $res.Replace("{status}", "$statusStr")
+            $res = $res.Replace("{icon}", "$iconStr")
+            $res = $res.Replace("{percent}", "$percentStr")
+            return $res
+        }
+    }
+}
 
 function Extract-ReplySnippet([string]$rawText) {
     if (-not $rawText) { return "" }
@@ -435,6 +637,7 @@ function Get-AgentData {
         }
     }
 
+    Save-AgentCache $results
     return $results
 }
 
@@ -490,6 +693,13 @@ function Show-StatusTable {
         }
         Write-Host ("=" * 80 + "`n") -ForegroundColor DarkCyan
     }
+}
+
+if ($Prompt -or -not [string]::IsNullOrEmpty($PromptFormat)) {
+    $fmt = if ($PromptFormat) { $PromptFormat } else { "default" }
+    $out = Get-AgentPrompt -Format $fmt -ForceRefresh:$Refresh
+    Write-Output $out
+    exit 0
 }
 
 if ($Json) {

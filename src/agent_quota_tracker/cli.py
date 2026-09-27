@@ -530,10 +530,33 @@ Examples:
         help="Send a test desktop notification to verify OS notification settings and exit.",
     )
     parser.add_argument(
+        "--prompt",
+        action="store_true",
+        help="Output an ultra-fast (<15ms) cached status segment for Starship, Oh-My-Posh, tmux, or custom prompts.",
+    )
+    parser.add_argument(
+        "--prompt-format",
+        "--promptformat",
+        type=str,
+        default=None,
+        metavar="FORMAT",
+        help="Format template or preset ('default', 'compact', 'minimal', 'tmux', 'json') for shell prompt segment.",
+    )
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Force refresh live quota status from provider APIs when generating prompt segment.",
+    )
+    parser.add_argument(
         "subcommand",
         nargs="?",
-        choices=["status", "poke", "dashboard", "poke-watch"],
-        help="Optional positional subcommand alias for status, poke, dashboard, or poke-watch",
+        choices=["status", "poke", "dashboard", "poke-watch", "prompt"],
+        help="Optional positional subcommand alias for status, poke, dashboard, poke-watch, or prompt",
+    )
+    parser.add_argument(
+        "extra_args",
+        nargs="*",
+        help=argparse.SUPPRESS,
     )
 
     args = parser.parse_args()
@@ -552,6 +575,15 @@ Examples:
         return
 
     # Determine command
+    is_prompt = args.prompt or (args.prompt_format is not None) or (args.subcommand == "prompt")
+    if is_prompt:
+        from agent_quota_tracker.prompt import format_prompt
+
+        format_spec = args.prompt_format or (args.extra_args[0] if args.extra_args else None)
+        output = format_prompt(preset_or_format=format_spec, refresh=args.refresh)
+        print(output)
+        return
+
     is_status = args.status or args.subcommand == "status"
     is_poke = args.poke or args.subcommand == "poke"
     is_poke_watch = args.poke_watch or args.subcommand == "poke-watch"

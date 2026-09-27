@@ -40,10 +40,17 @@ def test_cli_parser_flags():
     parser.add_argument("--agent", "-a", type=str)
     parser.add_argument("--dashboard", "-d", action="store_true")
 
-    args = parser.parse_args(["--poke", "--force", "-a", "work"])
+    parser.add_argument("--schedule-install", nargs="?", const="07:30", default=None)
+    parser.add_argument("--schedule-status", action="store_true")
+    parser.add_argument("--schedule-remove", action="store_true")
+
+    args = parser.parse_args(["--poke", "--force", "-a", "work", "--schedule-install", "08:00"])
     assert args.poke is True
     assert args.force is True
     assert args.agent == "work"
+    assert args.schedule_install == "08:00"
+    assert args.schedule_status is False
+    assert args.schedule_remove is False
     assert args.status is False
     assert args.json is False
 

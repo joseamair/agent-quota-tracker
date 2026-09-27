@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **OS-Level Scheduled Morning Priming Task Generator (`--schedule-install`, `--schedule-status`, `--schedule-remove`)** ([#22](https://github.com/joseamair/agent-quota-tracker/issues/22)):
+  - Built-in CLI commands to install, inspect status of, and remove unattended OS-level background scheduled morning priming tasks without third-party dependencies.
+  - Cross-platform native scheduler support:
+    - **Windows**: Windows Task Scheduler (`ScheduledTasks` cmdlets) operating safely in user space without requiring administrator elevation.
+    - **Linux**: User `crontab` (`crontab -l` / `crontab -`).
+    - **macOS**: `launchd` LaunchAgent plist (`~/Library/LaunchAgents/com.agentquotatracker.priming.plist`).
+  - Persistent run logging to `~/.agent_quota_tracker/schedule.log` capturing timestamped installations, poke execution outcomes, and removals.
+  - Positional subcommands supported (`agents schedule install [HH:MM]`, `agents schedule status`, `agents schedule remove`).
+  - Complete Tri-Engine Parity across modular Python package (`src/agent_quota_tracker/scheduler.py`), standalone runner (`agents.py`), and pure PowerShell (`agents_native.ps1`).
 - **Native Cross-Platform Desktop Toast Notifications (`--notify`, `-n`, `--test-notify`)** ([#20](https://github.com/joseamair/agent-quota-tracker/issues/20)):
   - Cross-platform desktop toast notifications dispatching system alerts upon successful agent priming (`--poke`), automated watchdog cooldown expirations (`--poke-watch`), and target-time schedule wakeups (`--poke-at`).
   - Zero third-party dependencies: uses native Windows 10/11 WinRT notifications via background PowerShell, macOS `osascript` notifications, and Linux `notify-send` with graceful fallback handling.

@@ -14,6 +14,12 @@ foreach ($arg in $ScriptArgs) {
         $pyArgs += '--poke-at'
     } elseif ($arg -eq '-TestNotify') {
         $pyArgs += '--test-notify'
+    } elseif ($arg -eq '-ScheduleInstall') {
+        $pyArgs += '--schedule-install'
+    } elseif ($arg -eq '-ScheduleStatus') {
+        $pyArgs += '--schedule-status'
+    } elseif ($arg -eq '-ScheduleRemove') {
+        $pyArgs += '--schedule-remove'
     } elseif ($arg -eq '-TargetAgent') {
         $pyArgs += '--agent'
     } elseif ($arg -match '^-[A-Za-z]' -and -not $arg.StartsWith('--') -and $arg.Length -gt 2) {

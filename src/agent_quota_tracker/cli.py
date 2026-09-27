@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import sys
 from datetime import datetime
@@ -23,6 +24,12 @@ from agent_quota_tracker.core import get_all_statuses, poke_all
 from agent_quota_tracker.dashboard import start_dashboard_server
 from agent_quota_tracker.models import AgentStatus, PokeResult
 from agent_quota_tracker.notifications import are_notifications_enabled, send_notification
+from agent_quota_tracker.scheduler import (
+    append_schedule_log,
+    get_schedule_status,
+    install_schedule,
+    remove_schedule,
+)
 from agent_quota_tracker.trackers.base import (
     format_duration,
     parse_duration,
@@ -301,6 +308,12 @@ def run_poke(
             names = ", ".join(r.agent_name for r in poked)
             send_notification("⚡ Agent Quota Primed", f"Successfully primed: {names}")
 
+    poked_names = [r.agent_name for r in results if r.action_taken == "poked"]
+    skipped_names = [r.agent_name for r in results if r.action_taken == "skipped"]
+    failed_names = [r.agent_name for r in results if r.action_taken in ("failed", "unverified")]
+    log_summary = f"Poke executed: {len(poked_names)} primed ({', '.join(poked_names) if poked_names else 'none'}), {len(skipped_names)} skipped, {len(failed_names)} failed"
+    append_schedule_log(log_summary)
+
     console.print()
     return results
 
@@ -420,6 +433,81 @@ def run_poke_at(
         run_poke_watch_loop(interval_arg=watch_interval, force=force, agent_id=agent_id, notify=notify)
 
 
+def run_schedule_install_cmd(time_str: str = "07:30", notify: bool = True) -> None:
+    console.print(f"\n[bold cyan]⚡ Registering OS-Level Scheduled Priming Task at {time_str}...[/bold cyan]")
+    res = install_schedule(time_str=time_str, notify=notify)
+    if res.get("success"):
+        console.print(f"[bold green]✔ Successfully registered scheduled priming task![/bold green]\n")
+        table = Table(show_header=False, box=None)
+        table.add_column("Key", style="bold white", width=18)
+        table.add_column("Value", style="cyan")
+        table.add_row("Task Name:", res.get("task_name", "AgentQuotaTrackerMorningPriming"))
+        table.add_row("Platform:", res.get("platform", "Unknown"))
+        table.add_row("Schedule:", f"Daily at {res.get('time', time_str)}")
+        table.add_row("Desktop Alerts:", "Enabled (--notify)" if notify else "Disabled")
+        if "command" in res:
+            table.add_row("Execution:", str(res["command"]))
+        if "log_file" in res:
+            table.add_row("Log File:", str(res["log_file"]))
+        console.print(table)
+        console.print("[dim]The system will automatically trigger morning priming even when your terminal is closed.[/dim]\n")
+    else:
+        console.print(f"[bold red]✖ Failed to register scheduled task: {res.get('message', 'Unknown error')}[/bold red]\n")
+
+
+def run_schedule_status_cmd() -> None:
+    status = get_schedule_status()
+    console.print(f"\n[bold cyan]⚡ OS-Level Scheduled Priming Task Status[/bold cyan]\n")
+    table = Table(show_header=False, box=None)
+    table.add_column("Key", style="bold white", width=18)
+    table.add_column("Value", style="cyan")
+    table.add_row("Task Name:", status.get("TaskName", "AgentQuotaTrackerMorningPriming"))
+    table.add_row("Platform:", status.get("Platform", "Unknown"))
+
+    installed = status.get("Installed", False)
+    inst_text = "[bold green]Installed (Active)[/bold green]" if installed else "[dim yellow]Not Installed[/dim yellow]"
+    table.add_row("Status:", inst_text)
+
+    if installed:
+        if "State" in status:
+            table.add_row("State:", str(status["State"]))
+        if "NextRunTime" in status:
+            table.add_row("Next Run Time:", str(status["NextRunTime"]))
+        if "LastRunTime" in status:
+            table.add_row("Last Run Time:", str(status["LastRunTime"]))
+        if "LastResult" in status and status["LastResult"] is not None:
+            res_code = status["LastResult"]
+            res_str = f"0 (Success)" if res_code == 0 else str(res_code)
+            table.add_row("Last Exit Code:", res_str)
+    if "log_file" in status:
+        table.add_row("Log File:", str(status["log_file"]))
+
+    console.print(table)
+
+    # Show last 5 log entries if available
+    log_path = status.get("log_file")
+    if log_path and os.path.exists(log_path):
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                lines = [ln.strip() for ln in f.readlines() if ln.strip()]
+            if lines:
+                console.print("\n[dim]Recent Schedule Logs (last 5 runs):[/dim]")
+                for ln in lines[-5:]:
+                    console.print(f"  [dim]{ln}[/dim]")
+        except Exception:
+            pass
+    console.print()
+
+
+def run_schedule_remove_cmd() -> None:
+    console.print(f"\n[bold cyan]⚡ Removing OS-Level Scheduled Priming Task...[/bold cyan]")
+    res = remove_schedule()
+    if res.get("success"):
+        console.print(f"[bold green]✔ Successfully uninstalled scheduled priming task.[/bold green]\n")
+    else:
+        console.print(f"[bold red]✖ {res.get('message', 'Failed to remove scheduled task.')}[/bold red]\n")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="⚡ AI Agents 5-Hour Window Tracker & Dashboard\n\nMonitor rolling rate limit windows, track weekly resets, and poke AI accounts non-interactively.",
@@ -434,6 +522,9 @@ Examples:
   agents --poke-watch -i 30m     Run watchdog polling every 30 minutes
   agents --poke-at 07:30         Prime windows at 07:30 AM before morning work begins
   agents --poke-at 07:30 --watch Prime at 07:30 AM and continue in watchdog mode
+  agents --schedule-install      Install OS background scheduled task for 07:30 AM daily
+  agents --schedule-status       Check status of OS background scheduled task
+  agents --schedule-remove       Uninstall OS background scheduled task
   agents --dashboard             Launch live web dashboard at http://localhost:5050
   agents --dashboard --port 8080 Run dashboard web server on custom port 8080
 """,
@@ -548,10 +639,28 @@ Examples:
         help="Force refresh live quota status from provider APIs when generating prompt segment.",
     )
     parser.add_argument(
+        "--schedule-install",
+        nargs="?",
+        const="07:30",
+        default=None,
+        metavar="HH:MM",
+        help="Install an OS-level background scheduled task to prime quotas daily (default: 07:30).",
+    )
+    parser.add_argument(
+        "--schedule-status",
+        action="store_true",
+        help="Display status of the OS-level background scheduled morning priming task.",
+    )
+    parser.add_argument(
+        "--schedule-remove",
+        action="store_true",
+        help="Uninstall and remove the OS-level background scheduled morning priming task.",
+    )
+    parser.add_argument(
         "subcommand",
         nargs="?",
-        choices=["status", "poke", "dashboard", "poke-watch", "prompt"],
-        help="Optional positional subcommand alias for status, poke, dashboard, poke-watch, or prompt",
+        choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule"],
+        help="Optional positional subcommand alias for status, poke, dashboard, poke-watch, prompt, or schedule",
     )
     parser.add_argument(
         "extra_args",
@@ -572,6 +681,32 @@ Examples:
             console.print()
         else:
             console.print("[bold red]✖ Notification failed to dispatch.[/bold red]\n")
+        return
+
+    # Handle schedule commands
+    if args.schedule_install is not None:
+        run_schedule_install_cmd(time_str=args.schedule_install, notify=args.notify)
+        return
+    if args.schedule_status:
+        run_schedule_status_cmd()
+        return
+    if args.schedule_remove:
+        run_schedule_remove_cmd()
+        return
+
+    if args.subcommand == "schedule":
+        sub_action = (args.extra_args[0].lower() if args.extra_args else "status")
+        if sub_action in ("install", "add", "set"):
+            t_str = args.extra_args[1] if len(args.extra_args) > 1 else "07:30"
+            run_schedule_install_cmd(time_str=t_str, notify=args.notify)
+        elif sub_action in ("remove", "uninstall", "delete", "rm"):
+            run_schedule_remove_cmd()
+        elif sub_action in ("status", "check", "show", "info"):
+            run_schedule_status_cmd()
+        elif ":" in sub_action:
+            run_schedule_install_cmd(time_str=sub_action, notify=args.notify)
+        else:
+            run_schedule_status_cmd()
         return
 
     # Determine command

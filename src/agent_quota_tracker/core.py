@@ -98,6 +98,14 @@ def get_all_statuses() -> list[AgentStatus]:
     with ThreadPoolExecutor(max_workers=max(1, len(trackers))) as executor:
         statuses = list(executor.map(lambda t: t.get_status(), trackers))
 
+    # Update local disk cache for fast prompt evaluations
+    try:
+        from agent_quota_tracker.cache import save_cache
+
+        save_cache(statuses)
+    except Exception:
+        pass
+
     return statuses
 
 

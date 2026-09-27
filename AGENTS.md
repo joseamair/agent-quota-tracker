@@ -129,12 +129,21 @@ To automate this strategy without manual terminal loops, the following features 
   - Automatic detection and friendly warning when Windows Notifications master toggle is disabled in system settings.
   - Native cross-platform support across Python package, standalone `agents.py`, and pure PowerShell (`agents_native.ps1`).
 
+### Feature 4: Shell Prompt & Status Bar Integration (`--prompt`, `--prompt-format`) [DELIVERED - v1.2.0]
+- **Tracking Issue**: [#25](https://github.com/joseamair/agent-quota-tracker/issues/25)
+- **Command**: `agents --prompt`, `agents --prompt-format <preset|template>`, `agents prompt`
+- **Architecture**:
+  - Ultra-fast (<15ms) cached status segments for **Starship**, **Oh-My-Posh**, **tmux**, and **PowerShell `$PROFILE`**.
+  - Built-in presets: `default` (`[⚡ 3/5 Active • 2h14m]`), `compact` (`⚡3/5 2h14m`), `minimal` (`🤖 3/5`), `tmux`, and `json`.
+  - Dynamic mathematical countdown calculation from cached timestamps without background daemon or polling.
+  - Zero-overhead cache under `~/.agent_quota_tracker/cache.json`, auto-updated on status, poke, and watchdog cycles.
+  - Native cross-platform support across Python package, standalone `agents.py`, and pure PowerShell (`agents_native.ps1`).
+
 ### Next Phase Capabilities (v1.2.0 & Beyond)
 - **Additional Agent Trackers** ([#21](https://github.com/joseamair/agent-quota-tracker/issues/21)): Cursor Composer, Windsurf/Cascade, GitHub Copilot CLI, and Aider/OpenRouter.
 - **OS-Level Scheduled Task Generator** ([#22](https://github.com/joseamair/agent-quota-tracker/issues/22)): `agents --schedule-install` via Windows Task Scheduler, systemd, and launchd.
 - **Historical Timeseries & Velocity Analytics** ([#23](https://github.com/joseamair/agent-quota-tracker/issues/23)): Local SQLite database (`history.db`) tracking burn rates and 7-day burndown charts.
 - **Web Dashboard v2** ([#24](https://github.com/joseamair/agent-quota-tracker/issues/24)): Server-Sent Events (SSE) live push updates, per-card controls, and OLED/Dark/Light themes.
-- **Shell Prompt & Status Bar Integration** ([#25](https://github.com/joseamair/agent-quota-tracker/issues/25)): Fast cached prompt segments for Starship, Oh-My-Posh, tmux, and PowerShell.
 
 ---
 

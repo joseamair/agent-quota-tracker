@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `--test-notify` diagnostic flag to immediately verify native notification pipeline functionality.
   - Added comprehensive test suite in `tests/test_notifications.py` covering Windows, macOS, and Linux dispatchers, special character sanitization, and error handling.
   - Full Tri-Engine Parity implemented across modular Python package (`src/agent_quota_tracker/notifications.py`), standalone runner (`agents.py`), and native PowerShell (`agents_native.ps1`).
+- **Shell Prompt & Status Bar Integration (`--prompt`, `--prompt-format`)** ([#25](https://github.com/joseamair/agent-quota-tracker/issues/25)):
+  - Ultra-fast (<15ms) cached status segments for Starship prompt, Oh-My-Posh, tmux status lines, and PowerShell `$PROFILE`.
+  - Built-in presets: `default` (`[⚡ 3/5 Active • 2h14m]`), `compact` (`⚡3/5 2h14m`), `minimal` (`🤖 3/5`), `tmux`, and `json`.
+  - Custom format templates supporting `{active}`, `{total}`, `{min_remaining}`, `{max_remaining}`, `{status}`, `{icon}`, and `{percent}` tokens.
+  - Mathematical dynamic countdown engine: calculates active counts and remaining time second-by-second directly from cached timestamps without background CPU churn or API calls.
+  - Zero-overhead disk cache residing under `~/.agent_quota_tracker/cache.json`, automatically refreshed on quota queries, pokes, and watch loops.
+  - Full Tri-Engine Parity across modular Python package (`src/agent_quota_tracker/prompt.py`, `cache.py`), standalone runner (`agents.py`), and pure native PowerShell (`agents_native.ps1`).
 
 ## [1.1.0] - 2026-09-25
 

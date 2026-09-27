@@ -39,6 +39,11 @@ param(
     [Alias("d")]
     [switch]$Dashboard,
 
+    [Alias("n")]
+    [switch]$Notify,
+
+    [switch]$TestNotify,
+
     [Alias("h", "?")]
     [switch]$Help
 )
@@ -65,14 +70,17 @@ OPTIONS:
   -Interval, -i <dur>    Polling interval for -PokeWatch (e.g. 30m, 2h, or auto for adaptive sleep).
   -Force, -f             When used with -Poke, forces a prompt even if window is already active.
   -TargetAgent, -a <id>  Target a specific agent (e.g. work, personal, work2, codex, agy).
+  -Notify, -n            Send native OS desktop notifications on poke events and scheduled completions.
+  -TestNotify            Send a test desktop notification to verify OS notification settings and exit.
   -Dashboard, -d         Launch the local web dashboard at http://localhost:5050.
   -Help, -h, -?          Show this help message and exit.
 
 EXAMPLES:
   .\agents_native.ps1 -Status
-  .\agents_native.ps1 -Poke
-  .\agents_native.ps1 -PokeWatch -Interval 30m
-  .\agents_native.ps1 -PokeAt 07:30
+  .\agents_native.ps1 -Poke -Notify
+  .\agents_native.ps1 -PokeWatch -Interval 30m -Notify
+  .\agents_native.ps1 -PokeAt 07:30 -Notify
+  .\agents_native.ps1 -TestNotify
   .\agents_native.ps1 -Poke -Force -TargetAgent work
   .\agents_native.ps1 -Dashboard
 
@@ -81,7 +89,7 @@ EXAMPLES:
 }
 
 # Default to Status if no action switch passed
-if (-not $Status -and -not $Poke -and -not $PokeWatch -and -not $PokeAt -and -not $Dashboard -and -not $Json -and $Watch -eq 0 -and -not $PSBoundParameters.ContainsKey('Watch')) {
+if (-not $Status -and -not $Poke -and -not $PokeWatch -and -not $PokeAt -and -not $Dashboard -and -not $Json -and -not $TestNotify -and $Watch -eq 0 -and -not $PSBoundParameters.ContainsKey('Watch')) {
     $Status = $true
 }
 
@@ -552,7 +560,32 @@ function Start-Countdown($totalSecs, $prefix) {
     Write-Host -NoNewline "`r                                                                                     `r"
 }
 
-function Invoke-PokeAgents($forceMode, $targetAgentId) {
+function Send-DesktopNotification {
+    param(
+        [string]$Title = "⚡ Agent Quota Tracker",
+        [string]$Message = "Notification"
+    )
+    try {
+        $safeTitle = $Title.Replace("'", "’")
+        $safeMessage = $Message.Replace("'", "’").Replace("`n", " ")
+        $script = @"
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+`$template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
+`$textNodes = `$template.GetElementsByTagName('text')
+`$null = `$textNodes.Item(0).AppendChild(`$template.CreateTextNode('$safeTitle'))
+`$null = `$textNodes.Item(1).AppendChild(`$template.CreateTextNode('$safeMessage'))
+`$toast = [Windows.UI.Notifications.ToastNotification]::new(`$template)
+`$notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe')
+`$notifier.Show(`$toast)
+"@
+        Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $script -WindowStyle Hidden
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Invoke-PokeAgents($forceMode, $targetAgentId, [switch]$NotifyAlert) {
     $modeStr = if ($forceMode) { " (FORCE mode enabled)" } else { "" }
     Write-Host "`n⚡ [POKE] Checking 5-hour rolling threshold windows$modeStr...`n" -ForegroundColor Yellow
     $data = Get-AgentData
@@ -561,10 +594,11 @@ function Invoke-PokeAgents($forceMode, $targetAgentId) {
         $data = $data | Where-Object { $_.Id -eq $target -or $_.Id -eq "claude-$target" }
         if (-not $data) {
             Write-Host "✖ Unknown agent ID '$targetAgentId'. Options: work, personal, work2, codex, agy`n" -ForegroundColor Red
-            return
+            return @()
         }
     }
 
+    $pokedList = @()
     foreach ($item in $data) {
         if (-not $item -or -not $item.Name) { continue }
 
@@ -616,6 +650,7 @@ function Invoke-PokeAgents($forceMode, $targetAgentId) {
         }
 
         if ($freshItem.IsActive) {
+            $pokedList += $item.Name
             Write-Host "  ✔ SUCCESS: $($item.Name.PadRight(25)) Verified ACTIVE ($($freshItem.Remaining) remaining, $($freshItem.UsagePct) used)" -ForegroundColor Green
             if ($replyText) {
                 Write-Host "             ↳ Reply: `"$replyText`"" -ForegroundColor DarkGray
@@ -627,7 +662,25 @@ function Invoke-PokeAgents($forceMode, $targetAgentId) {
             }
         }
     }
+
+    if ($NotifyAlert -and $pokedList.Count -gt 0) {
+        $namesStr = $pokedList -join ", "
+        $null = Send-DesktopNotification -Title "⚡ Agent Quota Primed" -Message "Successfully primed: $namesStr"
+    }
+
     Write-Host "`nDone!`n"
+    return $pokedList
+}
+
+if ($TestNotify) {
+    Write-Host "⚡ Sending test desktop notification..." -ForegroundColor Cyan
+    $ok = Send-DesktopNotification -Title "⚡ Agent Quota Tracker" -Message "Desktop notifications are working perfectly!"
+    if ($ok) {
+        Write-Host "✔ Notification dispatched successfully!`n" -ForegroundColor Green
+    } else {
+        Write-Host "✖ Notification failed to dispatch.`n" -ForegroundColor Red
+    }
+    exit 0
 }
 
 if ($PokeAt) {
@@ -639,9 +692,10 @@ if ($PokeAt) {
     }
     $targetStr = $info.Target.ToString("yyyy-MM-dd HH:mm:ss")
     $rel = if ($info.Target.Date -eq (Get-Date).Date) { "today" } else { "tomorrow" }
+    $notifyStr = if ($Notify) { " • Notifications: ON" } else { "" }
     Write-Host "`n=================================================================================" -ForegroundColor Cyan
     Write-Host "  ⚡ SCHEDULED PEAK-TIME PRIMING MODE" -ForegroundColor Cyan
-    Write-Host "  Target Execution: $targetStr ($rel)" -ForegroundColor White
+    Write-Host "  Target Execution: $targetStr ($rel)$notifyStr" -ForegroundColor White
     Write-Host "  Strategic priming ensures 5-hour quota reset aligns with peak workday hours." -ForegroundColor DarkGray
     Write-Host "  Press Ctrl+C to cancel schedule." -ForegroundColor DarkGray
     Write-Host "=================================================================================`n" -ForegroundColor Cyan
@@ -654,8 +708,12 @@ if ($PokeAt) {
     }
 
     Write-Host "`n⚡ Target time reached ($targetStr)! Initiating scheduled poke...`n" -ForegroundColor Green
-    Invoke-PokeAgents $Force $TargetAgent
+    $poked = Invoke-PokeAgents $Force $TargetAgent -NotifyAlert:$Notify
     Show-StatusTable
+
+    if ($Notify) {
+        $null = Send-DesktopNotification -Title "🎯 Morning Priming Complete" -Message "Priming complete! Agent windows ready for peak workday coding."
+    }
 
     if ($PokeWatch) {
         Write-Host "Transitioning into automated watchdog mode...`n" -ForegroundColor Cyan
@@ -667,9 +725,10 @@ if ($PokeAt) {
 if ($PokeWatch) {
     $fixedSecs = Convert-DurationToSeconds $Interval
     $modeStr = if ($fixedSecs) { "fixed ${fixedSecs}s interval" } else { "adaptive window expiry mode" }
+    $notifyStr = if ($Notify) { " • Notifications: ON" } else { "" }
     Write-Host "`n=================================================================================" -ForegroundColor Cyan
     Write-Host "  ⚡ AUTONOMOUS POKE WATCHDOG STARTED" -ForegroundColor Cyan
-    Write-Host "  Running in $modeStr. Automatically primes 5h quota windows as accounts cool down." -ForegroundColor White
+    Write-Host "  Running in $modeStr$notifyStr. Automatically primes 5h quota windows as accounts cool down." -ForegroundColor White
     Write-Host "  Press Ctrl+C to terminate." -ForegroundColor DarkGray
     Write-Host "=================================================================================`n" -ForegroundColor Cyan
 
@@ -678,7 +737,7 @@ if ($PokeWatch) {
         while ($true) {
             $nowStr = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
             Write-Host "▶ Watchdog Cycle #$cycle • $nowStr" -ForegroundColor Magenta
-            Invoke-PokeAgents $Force $TargetAgent
+            Invoke-PokeAgents $Force $TargetAgent -NotifyAlert:$Notify
 
             $sleepSecs = 120
             $reason = "adaptive check"
@@ -710,7 +769,7 @@ if ($PokeWatch) {
 }
 
 if ($Poke) {
-    Invoke-PokeAgents $Force $TargetAgent
+    Invoke-PokeAgents $Force $TargetAgent -NotifyAlert:$Notify
 }
 
 if ($Dashboard) {

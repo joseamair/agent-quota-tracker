@@ -351,11 +351,12 @@ def run_poke(
     return results
 
 
-def compute_adaptive_sleep_seconds(statuses: list[AgentStatus]) -> tuple[int, str]:
+def compute_adaptive_sleep_seconds(statuses: list[AgentStatus], force: bool = False) -> tuple[int, str]:
     """Computes intelligent sleep duration until the earliest active agent window expires."""
     active_with_time = [
         s for s in statuses
         if s.is_active and s.time_remaining_seconds > 0
+        and (force or s.weekly_used_percent is None or s.weekly_used_percent < 100.0)
     ]
     if not active_with_time:
         return 120, "All agents idle or freshly checked"
@@ -375,6 +376,73 @@ def run_countdown(total_seconds: int, prefix: str) -> None:
         time.sleep(1)
     sys.stdout.write("\r" + " " * 85 + "\r")
     sys.stdout.flush()
+
+
+def run_auto_checker_loop(
+    force: bool = False,
+    agent_id: Optional[str] = None,
+    notify: bool = False,
+    max_cycles: Optional[int] = None,
+) -> None:
+    """Continuously runs the autonomous auto-checker task: displays status, primes idle agents,
+    calculates the next upcoming reset time, waits with a ticking countdown, and repeats.
+    """
+    from datetime import timedelta
+    notify_str = " • Notifications: ON" if notify else ""
+    force_str = " • Force: ON" if force else ""
+    console.print(Panel(
+        f"[bold cyan]⚡ Autonomous Quota Auto-Checker Started[/bold cyan]\n"
+        f"[dim]Continuous monitoring loop: checks status, waits for earliest window reset, primes, and repeats.\n"
+        f"Mode: Adaptive Quota Priming{notify_str}{force_str} • Press Ctrl+C to terminate.[/dim]"
+    ))
+
+    cycle = 1
+    try:
+        while True:
+            if max_cycles is not None and cycle > max_cycles:
+                break
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            console.print(f"[bold magenta]▶ Auto-Checker Cycle #{cycle}[/bold magenta] [dim]• {now_str}[/dim]")
+
+            # Step 1: Print current status table
+            print_status_table()
+
+            # Step 2: Check if any agent is currently idle & ready to poke
+            statuses = get_all_statuses()
+            if agent_id:
+                target = agent_id.lower()
+                statuses = [s for s in statuses if s.id == target or s.id == f"claude-{target}"]
+
+            idle_ready = [
+                s for s in statuses
+                if not s.is_active and (force or s.weekly_used_percent is None or s.weekly_used_percent < 100.0)
+            ]
+
+            if idle_ready:
+                ready_names = ", ".join(s.name for s in idle_ready)
+                console.print(f"[bold yellow]⚡ Found {len(idle_ready)} idle account(s) ready to prime ({ready_names}). Poking now...[/bold yellow]")
+                run_poke(force=force, agent_id=agent_id, notify=notify)
+                print_status_table()
+                statuses = get_all_statuses()
+                if agent_id:
+                    target = agent_id.lower()
+                    statuses = [s for s in statuses if s.id == target or s.id == f"claude-{target}"]
+
+            # Step 3: Compute earliest next window expiration
+            sleep_secs, reason = compute_adaptive_sleep_seconds(statuses, force=force)
+            wake_time = (datetime.now() + timedelta(seconds=sleep_secs)).strftime("%H:%M:%S")
+            console.print(f"  [cyan]⏳ Next poke target at [bold]{wake_time}[/bold][/cyan] [dim]({reason})[/dim]\n")
+
+            # Step 4: Ticking countdown
+            run_countdown(sleep_secs, f"Next poke at {wake_time} ({reason})")
+            console.print(f"\n[bold green]⚡ Timer reached ({wake_time})! Priming newly available quota window(s)...[/bold green]")
+            run_poke(force=force, agent_id=agent_id, notify=notify)
+            cycle += 1
+            console.print()
+    except KeyboardInterrupt:
+        sys.stdout.write("\r" + " " * 85 + "\r")
+        sys.stdout.flush()
+        console.print("\n[bold yellow]⚡ Auto-checker loop stopped by user.[/bold yellow]\n")
 
 
 def run_poke_watch_loop(
@@ -407,7 +475,7 @@ def run_poke_watch_loop(
                 reason = f"fixed {format_duration(fixed_interval)}"
             else:
                 statuses = get_all_statuses()
-                sleep_secs, reason = compute_adaptive_sleep_seconds(statuses)
+                sleep_secs, reason = compute_adaptive_sleep_seconds(statuses, force=force)
 
             wake_time = (datetime.now() + timedelta(seconds=sleep_secs)).strftime("%H:%M:%S")
             console.print(f"[cyan]Next check at [bold]{wake_time}[/bold][/cyan] [dim]({reason})[/dim]")
@@ -703,10 +771,20 @@ Examples:
         help="Run the background scheduled task exactly once at the target time.",
     )
     parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="Run autonomous continuous auto-checker loop: checks status, waits for earliest window reset, primes, and repeats.",
+    )
+    parser.add_argument(
+        "--auto-poke",
+        action="store_true",
+        help="Alias for --auto.",
+    )
+    parser.add_argument(
         "subcommand",
         nargs="?",
-        choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule"],
-        help="Optional positional subcommand alias for status, poke, dashboard, poke-watch, prompt, or schedule",
+        choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule", "auto"],
+        help="Optional positional subcommand alias for status, poke, dashboard, poke-watch, prompt, schedule, or auto",
     )
     parser.add_argument(
         "extra_args",
@@ -769,9 +847,16 @@ Examples:
     is_status = args.status or args.subcommand == "status"
     is_poke = args.poke or args.subcommand == "poke"
     is_poke_watch = args.poke_watch or args.subcommand == "poke-watch"
+    is_auto = args.auto or args.auto_poke or (args.subcommand == "auto")
     is_dashboard = args.dashboard or (args.subcommand == "dashboard")
 
-    if args.poke_at:
+    if is_auto:
+        run_auto_checker_loop(
+            force=args.force,
+            agent_id=args.agent,
+            notify=args.notify,
+        )
+    elif args.poke_at:
         run_poke_at(
             target_time_str=args.poke_at,
             and_watch=is_poke_watch or (args.watch is not None),
@@ -798,7 +883,7 @@ Examples:
     else:
         # Default behavior: show status table and brief help
         print_status_table()
-        console.print("[dim]Use [bold]agents --status[/bold], [bold]agents --poke[/bold], [bold]agents --poke-watch[/bold], or [bold]agents --dashboard[/bold] for specific actions.[/dim]\n")
+        console.print("[dim]Use [bold]agents auto[/bold], [bold]agents --status[/bold], [bold]agents --poke[/bold], or [bold]agents --dashboard[/bold] for specific actions.[/dim]\n")
 
 
 if __name__ == "__main__":

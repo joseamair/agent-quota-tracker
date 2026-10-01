@@ -27,6 +27,11 @@ param(
     [Alias("pa")]
     [string]$PokeAt,
 
+    [Alias("ap")]
+    [switch]$Auto,
+
+    [switch]$AutoPoke,
+
     [Alias("i")]
     [string]$Interval,
 
@@ -72,11 +77,14 @@ if ($Help) {
 Monitor rolling rate limit windows, track weekly resets, and poke AI accounts non-interactively.
 
 USAGE:
-  .\agents_native.ps1 [-Status] [-Poke] [-PokeWatch] [-PokeAt <HH:MM>] [-Interval <dur>] [-Prompt] [-PromptFormat <fmt>] [-ScheduleInstall <HH:MM>] [-ScheduleStatus] [-ScheduleRemove] [-Force] [-TargetAgent <id>] [-Dashboard] [-Help]
+  .\agents_native.ps1 [-Status] [-Poke] [-Auto] [-PokeWatch] [-PokeAt <HH:MM>] [-Interval <dur>] [-Prompt] [-PromptFormat <fmt>] [-ScheduleInstall <HH:MM>] [-ScheduleStatus] [-ScheduleRemove] [-Force] [-TargetAgent <id>] [-Dashboard] [-Help]
 
 OPTIONS:
   -Status, -s            Display live 5-hour rolling threshold window state, time remaining,
                          next reset time, 5h % usage, and weekly quota reset date.
+  -Auto, -auto           Start continuous autonomous auto-checker loop: checks status, waits for
+                         earliest window reset, primes, and repeats until stopped.
+  -AutoPoke              Alias for -Auto.
   -Json, -j              Output raw machine-readable JSON status for all accounts.
   -Watch, -w [seconds]   Continuously refresh the status table every N seconds (default: 15s).
   -Poke, -p              Trigger a prompt on inactive accounts to start the 5h window.
@@ -117,7 +125,7 @@ EXAMPLES:
 }
 
 # Default to Status if no action switch passed
-if (-not $Status -and -not $Poke -and -not $PokeWatch -and -not $PokeAt -and -not $Dashboard -and -not $Json -and -not $TestNotify -and -not $Prompt -and -not $PromptFormat -and -not $ScheduleInstall -and -not $ScheduleStatus -and -not $ScheduleRemove -and $Watch -eq 0 -and -not $PSBoundParameters.ContainsKey('Watch')) {
+if (-not $Status -and -not $Poke -and -not $Auto -and -not $AutoPoke -and -not $PokeWatch -and -not $PokeAt -and -not $Dashboard -and -not $Json -and -not $TestNotify -and -not $Prompt -and -not $PromptFormat -and -not $ScheduleInstall -and -not $ScheduleStatus -and -not $ScheduleRemove -and $Watch -eq 0 -and -not $PSBoundParameters.ContainsKey('Watch')) {
     $Status = $true
 }
 
@@ -1117,6 +1125,91 @@ if ($PokeAt) {
     }
 }
 
+if ($Auto -or $AutoPoke) {
+    $notifyStr = if ($Notify) { " • Notifications: ON" } else { "" }
+    $forceStr = if ($Force) { " • Force: ON" } else { "" }
+    Write-Host "`n=================================================================================" -ForegroundColor Cyan
+    Write-Host "  ⚡ AUTONOMOUS QUOTA AUTO-CHECKER STARTED" -ForegroundColor Cyan
+    Write-Host "  Continuous monitoring loop: checks status, waits for earliest window reset, primes, and repeats." -ForegroundColor White
+    Write-Host "  Mode: Adaptive Quota Priming$notifyStr$forceStr • Press Ctrl+C to terminate." -ForegroundColor DarkGray
+    Write-Host "=================================================================================`n" -ForegroundColor Cyan
+
+    $cycle = 1
+    try {
+        while ($true) {
+            $nowStr = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            Write-Host "▶ Auto-Checker Cycle #$cycle • $nowStr" -ForegroundColor Magenta
+
+            # Step 1: Print status table
+            Show-StatusTable
+
+            # Step 2: Check for idle & ready accounts
+            $currentData = Get-AgentData
+            if ($TargetAgent) {
+                $targetLower = $TargetAgent.ToLower()
+                $currentData = $currentData | Where-Object { $_.Id -eq $targetLower -or $_.Id -eq "claude-$targetLower" }
+            }
+
+            $idleReady = @()
+            foreach ($item in $currentData) {
+                $wkDbl = $null
+                if ($item.WkUsage -and $item.WkUsage -ne "-" -and $item.WkUsage -match "(\d+(\.\d+)?)") {
+                    $wkDbl = [double]$matches[1]
+                }
+                $isExhausted = ($wkDbl -ne $null -and $wkDbl -ge 100.0)
+                if (-not $item.IsActive -and ($Force -or -not $isExhausted)) {
+                    $idleReady += $item
+                }
+            }
+
+            if ($idleReady.Count -gt 0) {
+                $readyNames = ($idleReady | ForEach-Object { $_.Name }) -join ", "
+                Write-Host "⚡ Found $($idleReady.Count) idle account(s) ready to prime ($readyNames). Poking now...`n" -ForegroundColor Yellow
+                Invoke-PokeAgents $Force $TargetAgent -NotifyAlert:$Notify
+                Show-StatusTable
+                $currentData = Get-AgentData
+                if ($TargetAgent) {
+                    $targetLower = $TargetAgent.ToLower()
+                    $currentData = $currentData | Where-Object { $_.Id -eq $targetLower -or $_.Id -eq "claude-$targetLower" }
+                }
+            }
+
+            # Step 3: Compute earliest next window expiration
+            $sleepSecs = 120
+            $reason = "all agents idle or freshly checked"
+            $activeWithRem = @()
+            foreach ($item in $currentData) {
+                $wkDbl = $null
+                if ($item.WkUsage -and $item.WkUsage -ne "-" -and $item.WkUsage -match "(\d+(\.\d+)?)") {
+                    $wkDbl = [double]$matches[1]
+                }
+                $isExhausted = ($wkDbl -ne $null -and $wkDbl -ge 100.0)
+                if ($item.IsActive -and $item.RemainingSeconds -gt 0 -and ($Force -or -not $isExhausted)) {
+                    $activeWithRem += $item
+                }
+            }
+
+            if ($activeWithRem.Count -gt 0) {
+                $earliest = ($activeWithRem | Sort-Object RemainingSeconds)[0]
+                $sleepSecs = [math]::Max(60, $earliest.RemainingSeconds + 45)
+                $reason = "$($earliest.Name) ($($earliest.Remaining) left)"
+            }
+
+            $wakeTime = (Get-Date).AddSeconds($sleepSecs).ToString("HH:mm:ss")
+            Write-Host "  ⏳ Next poke target at $wakeTime ($reason)`n" -ForegroundColor Cyan
+
+            # Step 4: Countdown & Poke
+            Start-Countdown $sleepSecs "Next poke at $wakeTime ($reason)"
+            Write-Host "`n⚡ Timer reached ($wakeTime)! Priming newly available quota window(s)...`n" -ForegroundColor Green
+            Invoke-PokeAgents $Force $TargetAgent -NotifyAlert:$Notify
+            $cycle++
+        }
+    } catch {
+        Write-Host "`n`n⚡ Auto-checker loop stopped by user.`n" -ForegroundColor Yellow
+        exit 0
+    }
+}
+
 if ($PokeWatch) {
     $fixedSecs = Convert-DurationToSeconds $Interval
     $modeStr = if ($fixedSecs) { "fixed ${fixedSecs}s interval" } else { "adaptive window expiry mode" }
@@ -1141,8 +1234,18 @@ if ($PokeWatch) {
                 $reason = "fixed ${fixedSecs}s"
             } else {
                 $latestData = Get-AgentData
-                $activeWithRem = $latestData | Where-Object { $_.IsActive -and $_.RemainingSeconds -gt 0 }
-                if ($activeWithRem) {
+                $activeWithRem = @()
+                foreach ($item in $latestData) {
+                    $wkDbl = $null
+                    if ($item.WkUsage -and $item.WkUsage -ne "-" -and $item.WkUsage -match "(\d+(\.\d+)?)") {
+                        $wkDbl = [double]$matches[1]
+                    }
+                    $isExhausted = ($wkDbl -ne $null -and $wkDbl -ge 100.0)
+                    if ($item.IsActive -and $item.RemainingSeconds -gt 0 -and ($Force -or -not $isExhausted)) {
+                        $activeWithRem += $item
+                    }
+                }
+                if ($activeWithRem.Count -gt 0) {
                     $earliest = ($activeWithRem | Sort-Object RemainingSeconds)[0]
                     $sleepSecs = [math]::Max(60, $earliest.RemainingSeconds + 45)
                     $reason = "$($earliest.Name) ($($earliest.Remaining) left)"

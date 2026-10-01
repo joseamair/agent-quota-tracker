@@ -1311,10 +1311,11 @@ def parse_target_time(time_str: str, now_dt: Optional[datetime] = None) -> tuple
     return target, delta_secs
 
 
-def compute_adaptive_sleep_seconds(agents_info: list[AgentInfo]) -> tuple[int, str]:
+def compute_adaptive_sleep_seconds(agents_info: list[AgentInfo], force: bool = False) -> tuple[int, str]:
     active_with_time = [
         a for a in agents_info
         if a.is_active and a.time_remaining_seconds > 0
+        and (force or a.weekly_used_percent is None or a.weekly_used_percent < 100.0)
     ]
     if not active_with_time:
         return 120, "All agents idle or freshly checked"
@@ -1332,6 +1333,72 @@ def run_countdown(total_seconds: int, prefix: str) -> None:
         time.sleep(1)
     sys.stdout.write("\r" + " " * 85 + "\r")
     sys.stdout.flush()
+
+
+def run_auto_checker_loop(
+    force: bool = False,
+    agent_id: Optional[str] = None,
+    notify: bool = False,
+    max_cycles: Optional[int] = None,
+) -> None:
+    """Continuously runs the autonomous auto-checker task: displays status, primes idle agents,
+    calculates the next upcoming reset time, waits with a ticking countdown, and repeats.
+    """
+    notify_str = " • Notifications: ON" if notify else ""
+    force_str = " • Force: ON" if force else ""
+    print(f"\n================================================================================================================================")
+    print(f"  ⚡ AUTONOMOUS QUOTA AUTO-CHECKER STARTED")
+    print(f"  Continuous monitoring loop: checks status, waits for earliest window reset, primes, and repeats.")
+    print(f"  Mode: Adaptive Quota Priming{notify_str}{force_str} • Press Ctrl+C to terminate.")
+    print(f"================================================================================================================================\n")
+
+    cycle = 1
+    try:
+        while True:
+            if max_cycles is not None and cycle > max_cycles:
+                break
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print(f"▶ Auto-Checker Cycle #{cycle} • {now_str}")
+
+            # Step 1: Print current status table
+            print_status_table()
+
+            # Step 2: Check if any agent is currently idle & ready to poke
+            statuses = fetch_all_statuses()
+            if agent_id:
+                target = agent_id.lower()
+                statuses = [s for s in statuses if s.id == target or s.id == f"claude-{target}"]
+
+            idle_ready = [
+                s for s in statuses
+                if not s.is_active and (force or s.weekly_used_percent is None or s.weekly_used_percent < 100.0)
+            ]
+
+            if idle_ready:
+                ready_names = ", ".join(s.name for s in idle_ready)
+                print(f"⚡ Found {len(idle_ready)} idle account(s) ready to prime ({ready_names}). Poking now...\n")
+                run_poke_command(force=force, agent_id=agent_id, notify=notify)
+                print_status_table()
+                statuses = fetch_all_statuses()
+                if agent_id:
+                    target = agent_id.lower()
+                    statuses = [s for s in statuses if s.id == target or s.id == f"claude-{target}"]
+
+            # Step 3: Compute earliest next window expiration
+            sleep_secs, reason = compute_adaptive_sleep_seconds(statuses, force=force)
+            wake_time = (datetime.now() + timedelta(seconds=sleep_secs)).strftime("%H:%M:%S")
+            print(f"  ⏳ Next poke target at {wake_time} ({reason})\n")
+
+            # Step 4: Ticking countdown
+            run_countdown(sleep_secs, f"Next poke at {wake_time} ({reason})")
+            print(f"\n⚡ Timer reached ({wake_time})! Priming newly available quota window(s)...\n")
+            run_poke_command(force=force, agent_id=agent_id, notify=notify)
+            cycle += 1
+            print()
+    except KeyboardInterrupt:
+        sys.stdout.write("\r" + " " * 85 + "\r")
+        sys.stdout.flush()
+        print("\n⚡ Auto-checker loop stopped by user.\n")
 
 
 def run_poke_watch_loop(
@@ -2300,10 +2367,20 @@ Examples:
         help="Run the background scheduled task exactly once at the target time.",
     )
     parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="Run autonomous continuous auto-checker loop: checks status, waits for earliest window reset, primes, and repeats.",
+    )
+    parser.add_argument(
+        "--auto-poke",
+        action="store_true",
+        help="Alias for --auto.",
+    )
+    parser.add_argument(
         "cmd",
         nargs="?",
-        choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule"],
-        help="Optional positional command alias ('status', 'poke', 'dashboard', 'poke-watch', 'prompt', 'schedule')",
+        choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule", "auto"],
+        help="Optional positional command alias ('status', 'poke', 'dashboard', 'poke-watch', 'prompt', 'schedule', 'auto')",
     )
     parser.add_argument(
         "extra_args",
@@ -2364,9 +2441,16 @@ Examples:
     is_status = args.status or args.cmd == "status"
     is_poke = args.poke or args.cmd == "poke"
     is_poke_watch = args.poke_watch or args.cmd == "poke-watch"
+    is_auto = args.auto or args.auto_poke or (args.cmd == "auto")
     is_dashboard = args.dashboard or args.cmd == "dashboard"
 
-    if args.poke_at:
+    if is_auto:
+        run_auto_checker_loop(
+            force=args.force,
+            agent_id=args.agent,
+            notify=args.notify,
+        )
+    elif args.poke_at:
         run_poke_at(
             target_time_str=args.poke_at,
             and_watch=is_poke_watch or (args.watch is not None),
@@ -2392,7 +2476,7 @@ Examples:
         start_dashboard(port=args.port)
     else:
         print_status_table()
-        print("Run with: --status, --poke, --poke-watch, or --dashboard\n")
+        print("Run with: auto, --status, --poke, --poke-watch, or --dashboard\n")
 
 
 if __name__ == "__main__":

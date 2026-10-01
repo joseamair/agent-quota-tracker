@@ -170,3 +170,120 @@ def test_build_status_table_weekly_exhaustion_warning():
     assert "⚠️" in rendered
 
 
+def test_auto_checker_parser_flags():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--auto", action="store_true")
+    parser.add_argument("--auto-poke", action="store_true")
+    parser.add_argument("subcommand", nargs="?", choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule", "auto"])
+
+    args1 = parser.parse_args(["--auto"])
+    assert args1.auto is True
+    assert args1.auto_poke is False
+
+    args2 = parser.parse_args(["--auto-poke"])
+    assert args2.auto_poke is True
+
+    args3 = parser.parse_args(["auto"])
+    assert args3.subcommand == "auto"
+
+
+def test_compute_adaptive_sleep_seconds_skips_exhausted():
+    from agent_quota_tracker.cli import compute_adaptive_sleep_seconds
+    from agent_quota_tracker.models import AgentStatus
+
+    # Agent 1 is exhausted (100% weekly) with 500s remaining on 5h window
+    # Agent 2 is not exhausted (40% weekly) with 1500s remaining on 5h window
+    s_exhausted = AgentStatus(
+        id="personal",
+        name="Claude (Personal)",
+        provider="claude",
+        is_active=True,
+        used_percent=10.0,
+        time_remaining_seconds=500,
+        time_remaining_str="8m 20s",
+        weekly_used_percent=100.0,
+    )
+    s_valid = AgentStatus(
+        id="work",
+        name="Claude (Work)",
+        provider="claude",
+        is_active=True,
+        used_percent=10.0,
+        time_remaining_seconds=1500,
+        time_remaining_str="25m",
+        weekly_used_percent=40.0,
+    )
+
+    # Without force: should skip s_exhausted and sleep for s_valid (1500 + 45 = 1545)
+    sleep_secs, reason = compute_adaptive_sleep_seconds([s_exhausted, s_valid], force=False)
+    assert sleep_secs == 1545
+    assert "Claude (Work)" in reason
+
+    # With force: should include s_exhausted (500 + 45 = 545)
+    sleep_secs_forced, reason_forced = compute_adaptive_sleep_seconds([s_exhausted, s_valid], force=True)
+    assert sleep_secs_forced == 545
+    assert "Claude (Personal)" in reason_forced
+
+
+def test_run_auto_checker_loop_single_cycle(monkeypatch):
+    from unittest.mock import MagicMock
+    from agent_quota_tracker.cli import run_auto_checker_loop
+    from agent_quota_tracker.models import AgentStatus
+
+    idle_agent = AgentStatus(
+        id="agy",
+        name="Google Antigravity (AGY)",
+        provider="agy",
+        is_active=False,
+        used_percent=0.0,
+        weekly_used_percent=20.0,
+    )
+    active_agent = AgentStatus(
+        id="codex",
+        name="OpenAI Codex",
+        provider="codex",
+        is_active=True,
+        used_percent=0.0,
+        time_remaining_seconds=300,
+        time_remaining_str="5m 0s",
+        weekly_used_percent=10.0,
+    )
+
+    mock_statuses = [idle_agent, active_agent]
+    mock_get_all = MagicMock(return_value=mock_statuses)
+    mock_print_table = MagicMock()
+    mock_run_poke = MagicMock()
+    mock_run_countdown = MagicMock()
+
+    monkeypatch.setattr("agent_quota_tracker.cli.get_all_statuses", mock_get_all)
+    monkeypatch.setattr("agent_quota_tracker.cli.print_status_table", mock_print_table)
+    monkeypatch.setattr("agent_quota_tracker.cli.run_poke", mock_run_poke)
+    monkeypatch.setattr("agent_quota_tracker.cli.run_countdown", mock_run_countdown)
+
+    # Run exactly 1 cycle
+    run_auto_checker_loop(force=False, notify=False, max_cycles=1)
+
+    # Verify:
+    # 1. Status table printed
+    assert mock_print_table.call_count >= 1
+    # 2. Idle agent poked immediately because idle_ready had 1 agent, plus end-of-countdown poke
+    assert mock_run_poke.call_count >= 2
+    # 3. Countdown was run for active agent
+    assert mock_run_countdown.call_count == 1
+    called_secs = mock_run_countdown.call_args[0][0]
+    assert called_secs == 345
+
+
+def test_run_auto_checker_loop_keyboard_interrupt(monkeypatch):
+    from unittest.mock import MagicMock
+    from agent_quota_tracker.cli import run_auto_checker_loop
+
+    mock_print_table = MagicMock(side_effect=KeyboardInterrupt)
+    monkeypatch.setattr("agent_quota_tracker.cli.print_status_table", mock_print_table)
+
+    # Should exit cleanly without raising KeyboardInterrupt exception
+    run_auto_checker_loop(max_cycles=1)
+
+
+

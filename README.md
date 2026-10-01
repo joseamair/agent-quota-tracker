@@ -231,7 +231,27 @@ Schedules an automated poke at a specific planned time of day (24-hour format) t
 
 ---
 
-### 5. `agents --schedule-install` / `--schedule-status` / `--schedule-remove` (OS Background Priming)
+### 5. `agents auto` / `agents --auto` / `--auto-poke` (Autonomous Quota Auto-Checker Loop)
+Runs a continuous, fully autonomous monitoring and priming task that loops endlessly:
+1. Prints the live quota status table across all accounts.
+2. Immediately primes any accounts that are currently idle and ready to poke (skipping accounts with $\ge 100\%$ weekly usage).
+3. Computes the earliest next 5-hour window reset time and displays a live ticking countdown: `⏳ Next poke target at <HH:MM:SS> (<Agent Name> (<time> left)) • Press Ctrl+C to stop`.
+4. Automatically primes newly available quota windows the moment the timer is reached, then restarts the cycle.
+
+```powershell
+# Start autonomous auto-checker loop:
+agents auto
+# Or with CLI flag:
+.\agents.ps1 --auto
+# With desktop notifications:
+.\agents.ps1 --auto --notify
+# With native PowerShell:
+.\agents_native.ps1 -Auto -Notify
+```
+
+---
+
+### 6. `agents --schedule-install` / `--schedule-status` / `--schedule-remove` (OS Background Priming)
 Registers an unattended OS-level background scheduled task to automatically prime your agents every morning, even when your terminal is closed or you have not logged in yet.
 
 ```powershell
@@ -265,7 +285,7 @@ All executions and outcomes are persisted in `~/.agent_quota_tracker/schedule.lo
 
 ---
 
-### 6. `agents --dashboard` (`-d`)
+### 7. `agents --dashboard` (`-d`)
 Spins up the local web dashboard at `http://localhost:5050` and automatically opens it in your default browser.
 
 ```powershell
@@ -283,7 +303,7 @@ Spins up the local web dashboard at `http://localhost:5050` and automatically op
 
 ---
 
-### 7. `agents --status --json`
+### 8. `agents --status --json`
 Outputs raw machine-readable JSON status for all tracked accounts (ideal for custom status bars, polybars, tmux, and automation):
 
 ```powershell
@@ -294,7 +314,7 @@ uv run agents --json
 
 ---
 
-### 8. `agents --prompt` / `agents --prompt-format` (Shell Prompt & Status Bar Integration)
+### 9. `agents --prompt` / `agents --prompt-format` (Shell Prompt & Status Bar Integration)
 Ultra-fast (<15ms) cached status segments for custom shell prompts (**Starship**, **Oh-My-Posh**, **PowerShell `$PROFILE`**) and status lines (**tmux**, **Waybar**, **Polybar**).
 
 ```powershell

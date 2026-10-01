@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prevents premature, wasteful poke invocations on accounts approaching their natural reset window.
 
 ### Added
+- **Autonomous Continuous Quota Auto-Checker Loop (`agents auto`, `--auto`, `--auto-poke`)** ([#31](https://github.com/joseamair/agent-quota-tracker/issues/31)):
+  - Continuous autonomous monitoring and priming task that:
+    1. Displays the live quota status table (`agents --status`).
+    2. Immediately primes any currently idle accounts ready to poke (skipping $\ge 100\%$ weekly exhausted accounts unless `--force`).
+    3. Calculates the earliest active 5-hour window reset time and displays a live ticking countdown: `⏳ Next poke target at <HH:MM:SS> (<Agent Name> (<time> left)) • Press Ctrl+C to stop`.
+    4. Automatically primes newly available quota windows when the countdown completes and repeats in an infinite loop.
+  - Zero-maintenance terminal daemon with clean `Ctrl+C` interrupt handling and zero orphaned background processes.
+  - Full Tri-Engine Parity across modular Python package (`run_auto_checker_loop`), standalone runner (`agents.py`), and pure native PowerShell (`agents_native.ps1 -Auto`).
+
 - **Weekly Quota Exhaustion Guard & Visual Alert System** ([#29](https://github.com/joseamair/agent-quota-tracker/issues/29)):
   - **Dynamic CLI Highlighting**: Weekly usage is now highlighted in `bold red` with `⚠️ 100%` when $\ge 100\%$, `bold red` when $\ge 90\%$, and `bold yellow` when $\ge 75\%$.
   - **Smart Poke Safety Guard**: `agents --poke`, `--poke-watch`, and OS scheduled priming tasks automatically skip accounts whose weekly quota has reached $\ge 100\%$ (or report provider `locked_reason`), saving residual token buffers from being wasted on greeting prompts.

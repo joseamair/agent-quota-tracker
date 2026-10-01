@@ -152,6 +152,19 @@ To automate this strategy without manual terminal loops, the following features 
   - Persistent run logging to `~/.agent_quota_tracker/schedule.log` capturing timestamped installations, poke outcomes, and task removals.
   - Zero third-party dependencies; full Tri-Engine Parity across Python package, standalone `agents.py`, and pure PowerShell (`agents_native.ps1`).
 
+### Feature 6: Autonomous Continuous Auto-Checker Loop (`agents auto`, `--auto-poke`) [DELIVERED - v1.2.0]
+- **Tracking Issue**: [#31](https://github.com/joseamair/agent-quota-tracker/issues/31)
+- **Command**: `agents auto`, `agents --auto`, `agents --auto-poke`
+- **Architecture**:
+  - Continuous autonomous monitoring and priming task that:
+    1. Displays the live quota status table (`agents --status`).
+    2. Immediately primes any accounts that are currently idle and ready to poke (skipping accounts with $\ge 100\%$ weekly usage).
+    3. Computes the earliest active 5-hour window reset time across non-exhausted accounts.
+    4. Displays a live ticking terminal countdown: `⏳ Next poke target at <HH:MM:SS> (<Agent Name> (<time> left)) • Press Ctrl+C to stop`.
+    5. When the countdown completes, automatically primes newly available quota windows and repeats in an infinite loop.
+  - Clean `Ctrl+C` interrupt handling with zero orphaned processes.
+  - Zero third-party dependencies; full Tri-Engine Parity across modular Python package (`run_auto_checker_loop`), standalone `agents.py`, and pure native PowerShell (`agents_native.ps1 -Auto`).
+
 ### Next Phase Capabilities (v1.2.0 & Beyond)
 - **Additional Agent Trackers** ([#21](https://github.com/joseamair/agent-quota-tracker/issues/21)): Cursor Composer, Windsurf/Cascade, GitHub Copilot CLI, and Aider/OpenRouter.
 - **Historical Timeseries & Velocity Analytics** ([#23](https://github.com/joseamair/agent-quota-tracker/issues/23)): Local SQLite database (`history.db`) tracking burn rates and 7-day burndown charts.

@@ -368,13 +368,19 @@ def compute_adaptive_sleep_seconds(statuses: list[AgentStatus], force: bool = Fa
 
 
 def run_countdown(total_seconds: int, prefix: str) -> None:
-    """Displays a ticking countdown line."""
+    """Displays a ticking countdown line updated cleanly in-place."""
     import time
+    term_w = get_terminal_width()
+    max_len = max(40, term_w - 2)
     for rem in range(total_seconds, 0, -1):
-        sys.stdout.write(f"\r  ⏳ {prefix}: {format_duration(rem)} remaining • Press Ctrl+C to stop   ")
+        line = f"⏳ {prefix}: {format_duration(rem)} remaining"
+        if len(line) > max_len:
+            line = line[:max_len - 3] + "..."
+        padded = line.ljust(max_len)
+        sys.stdout.write(f"\r{padded}")
         sys.stdout.flush()
         time.sleep(1)
-    sys.stdout.write("\r" + " " * 85 + "\r")
+    sys.stdout.write("\r" + " " * max_len + "\r")
     sys.stdout.flush()
 
 
@@ -431,9 +437,9 @@ def run_auto_checker_loop(
             # Step 3: Compute earliest next window expiration
             sleep_secs, reason = compute_adaptive_sleep_seconds(statuses, force=force)
             wake_time = (datetime.now() + timedelta(seconds=sleep_secs)).strftime("%H:%M:%S")
-            console.print(f"  [cyan]⏳ Next poke target at [bold]{wake_time}[/bold][/cyan] [dim]({reason})[/dim]\n")
+            console.print()
 
-            # Step 4: Ticking countdown
+            # Step 4: Ticking countdown (in-place)
             run_countdown(sleep_secs, f"Next poke at {wake_time} ({reason})")
             console.print(f"\n[bold green]⚡ Timer reached ({wake_time})! Priming newly available quota window(s)...[/bold green]")
             run_poke(force=force, agent_id=agent_id, notify=notify)

@@ -790,6 +790,15 @@ function Get-TargetTimeInfo($timeStr) {
 }
 
 function Start-Countdown($totalSecs, $prefix) {
+    $rawWidth = 100
+    try {
+        if ($Host -and $Host.UI -and $Host.UI.RawUI) {
+            $rawWidth = $Host.UI.RawUI.WindowSize.Width
+        }
+    } catch {}
+    if (-not $rawWidth -or $rawWidth -lt 40) { $rawWidth = 100 }
+    $maxLen = [math]::Max(40, $rawWidth - 2)
+
     for ($rem = $totalSecs; $rem -gt 0; $rem--) {
         $h = [math]::Floor($rem / 3600)
         $m = [math]::Floor(($rem % 3600) / 60)
@@ -799,10 +808,16 @@ function Start-Countdown($totalSecs, $prefix) {
         if ($m -gt 0) { $durParts += "${m}m" }
         if ($s -gt 0 -or $durParts.Count -eq 0) { $durParts += "${s}s" }
         $durStr = $durParts -join " "
-        Write-Host -NoNewline "`r  ⏳ $prefix : $durStr remaining • Press Ctrl+C to cancel   "
+
+        $line = "⏳ $prefix: $durStr remaining"
+        if ($line.Length -gt $maxLen) {
+            $line = $line.Substring(0, $maxLen - 3) + "..."
+        }
+        $padded = $line.PadRight($maxLen)
+        Write-Host -NoNewline "`r$padded"
         Start-Sleep -Seconds 1
     }
-    Write-Host -NoNewline "`r                                                                                     `r"
+    Write-Host -NoNewline ("`r" + (" " * $maxLen) + "`r")
 }
 
 function Send-DesktopNotification {
@@ -1196,7 +1211,7 @@ if ($Auto -or $AutoPoke) {
             }
 
             $wakeTime = (Get-Date).AddSeconds($sleepSecs).ToString("HH:mm:ss")
-            Write-Host "  ⏳ Next poke target at $wakeTime ($reason)`n" -ForegroundColor Cyan
+            Write-Host ""
 
             # Step 4: Countdown & Poke
             Start-Countdown $sleepSecs "Next poke at $wakeTime ($reason)"

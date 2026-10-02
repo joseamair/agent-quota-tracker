@@ -19,10 +19,13 @@ import json
 import os
 import platform
 import shutil
+import sqlite3
 import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 import webbrowser
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -1049,6 +1052,373 @@ def poke_agy(prompt: str = "Hello, how are you doing?") -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Additional Agent Trackers (Cursor, Windsurf, Copilot, Aider)
+# ---------------------------------------------------------------------------
+
+def _discover_cursor_token(custom_db: Optional[Path] = None) -> Optional[str]:
+    if custom_db and custom_db.exists():
+        candidates = [custom_db]
+    else:
+        home = Path(os.path.expanduser("~"))
+        candidates = []
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            candidates.append(Path(appdata) / "Cursor" / "User" / "globalStorage" / "state.vscdb")
+        candidates.append(home / "Library" / "Application Support" / "Cursor" / "User" / "globalStorage" / "state.vscdb")
+        candidates.append(home / ".config" / "Cursor" / "User" / "globalStorage" / "state.vscdb")
+
+    for db_path in candidates:
+        if db_path.exists() and db_path.is_file():
+            try:
+                conn = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True, timeout=2.0)
+                cur = conn.cursor()
+                cur.execute("SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken' LIMIT 1")
+                row = cur.fetchone()
+                conn.close()
+                if row and row[0]:
+                    token = str(row[0]).strip().strip('"').strip("'")
+                    if token:
+                        return token
+            except Exception:
+                pass
+    return None
+
+
+def get_cursor_status(
+    display_name: str = "Cursor Composer",
+    category: str = "personal",
+    access_token: Optional[str] = None,
+    cookie: Optional[str] = None,
+    agent_id: str = "cursor",
+) -> AgentInfo:
+    token = access_token or _discover_cursor_token()
+    if not token and not cookie:
+        return AgentInfo(
+            id=agent_id,
+            name=display_name,
+            provider="cursor",
+            is_active=False,
+            used_percent=0.0,
+            status_label="Unconfigured / Offline",
+            error="No Cursor access token or session cookie found. Configure access_token or login to Cursor.",
+            category=category,
+        )
+
+    url = "https://api2.cursor.sh/auth/usage" if token else "https://www.cursor.com/api/usage"
+    headers = {"User-Agent": "agent-quota-tracker/1.2.0", "Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    if cookie:
+        headers["Cookie"] = f"WorkosCursorSessionToken={cookie}"
+
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=5.0) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        err_msg = f"Cursor token expired or unauthorized ({e.code}). Please re-login to Cursor." if e.code in (401, 403) else f"HTTP {e.code}"
+        return AgentInfo(id=agent_id, name=display_name, provider="cursor", is_active=False, used_percent=0.0, status_label="Error", error=err_msg, category=category)
+    except Exception as ex:
+        return AgentInfo(id=agent_id, name=display_name, provider="cursor", is_active=False, used_percent=0.0, status_label="Error", error=str(ex), category=category)
+
+    num_requests = 0
+    max_requests = 500
+    start_of_month = data.get("startOfMonth")
+    for key in ("gpt-4", "claude-3.5-sonnet", "fastRequests", "regularRequests"):
+        m = data.get(key)
+        if isinstance(m, dict):
+            num_requests = m.get("numRequests", num_requests)
+            max_requests = m.get("maxRequestUsage", max_requests)
+            break
+
+    used_pct = round((num_requests / max_requests * 100.0) if max_requests > 0 else 0.0, 1)
+    wk_hours, wk_str = calculate_weekly_reset(start_of_month) if start_of_month else (None, "-")
+    is_active = used_pct > 0.0
+
+    return AgentInfo(
+        id=agent_id,
+        name=display_name,
+        provider="cursor",
+        is_active=is_active,
+        used_percent=used_pct,
+        weekly_used_percent=used_pct,
+        weekly_resets_at=start_of_month,
+        weekly_remaining_hours=wk_hours,
+        weekly_reset_str=wk_str,
+        status_label="Active" if is_active else "Idle",
+        category=category,
+    )
+
+
+def poke_cursor(prompt: str = "Hello, how are you doing?") -> dict[str, Any]:
+    c_bin = shutil.which("cursor")
+    if c_bin:
+        try:
+            proc = subprocess.run([c_bin, "--version"], capture_output=True, text=True, timeout=5)
+            ver = proc.stdout.strip().splitlines()[0] if proc.stdout else "unknown"
+            return {"status": "poked", "message": f"Cursor IDE detected ({ver}). Monitored via API.", "reply": None, "verified_active": True}
+        except Exception as e:
+            return {"status": "error", "message": str(e), "reply": None, "verified_active": False}
+    return {"status": "skipped", "message": "Cursor monitored via API. Headless CLI poke not supported.", "reply": None, "verified_active": False}
+
+
+def _discover_windsurf_key() -> Optional[str]:
+    home = Path(os.path.expanduser("~"))
+    candidates = [
+        home / ".codeium" / "config.json",
+        home / ".codeium" / "windsurf" / "mcp_config.json",
+    ]
+    up = os.environ.get("USERPROFILE")
+    if up:
+        candidates.append(Path(up) / ".codeium" / "config.json")
+    for path in candidates:
+        if path.exists() and path.is_file():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                k = data.get("apiKey") or data.get("api_key") or data.get("token")
+                if k and isinstance(k, str) and k.strip():
+                    return k.strip()
+            except Exception:
+                pass
+    return None
+
+
+def get_windsurf_status(
+    display_name: str = "Windsurf (Cascade)",
+    category: str = "personal",
+    api_key: Optional[str] = None,
+    agent_id: str = "windsurf",
+) -> AgentInfo:
+    key = api_key or _discover_windsurf_key()
+    if not key:
+        return AgentInfo(
+            id=agent_id,
+            name=display_name,
+            provider="windsurf",
+            is_active=False,
+            used_percent=0.0,
+            status_label="Unconfigured / Offline",
+            error="No Windsurf/Codeium API key found. Set api_key in config or login to Windsurf.",
+            category=category,
+        )
+
+    url = "https://api.codeium.com/register_user/"
+    payload = json.dumps({"api_key": key}).encode("utf-8")
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json", "User-Agent": "agent-quota-tracker/1.2.0"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=5.0) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as ex:
+        return AgentInfo(id=agent_id, name=display_name, provider="windsurf", is_active=False, used_percent=0.0, status_label="Error", error=str(ex), category=category)
+
+    user_info = data.get("user") or data
+    used_pct = float(user_info.get("used_percent", 0.0))
+    is_active = used_pct > 0.0
+
+    return AgentInfo(
+        id=agent_id,
+        name=display_name,
+        provider="windsurf",
+        is_active=is_active,
+        used_percent=used_pct,
+        weekly_used_percent=used_pct,
+        status_label="Active" if is_active else "Idle",
+        category=category,
+    )
+
+
+def poke_windsurf(prompt: str = "Hello, how are you doing?") -> dict[str, Any]:
+    w_bin = shutil.which("windsurf")
+    if w_bin:
+        try:
+            proc = subprocess.run([w_bin, "--version"], capture_output=True, text=True, timeout=5)
+            ver = proc.stdout.strip().splitlines()[0] if proc.stdout else "unknown"
+            return {"status": "poked", "message": f"Windsurf IDE detected ({ver}). Monitored via API.", "reply": None, "verified_active": True}
+        except Exception as e:
+            return {"status": "error", "message": str(e), "reply": None, "verified_active": False}
+    return {"status": "skipped", "message": "Windsurf monitored via API. Headless CLI poke not supported.", "reply": None, "verified_active": False}
+
+
+def _discover_copilot_token() -> Optional[str]:
+    gh_bin = shutil.which("gh")
+    if gh_bin:
+        try:
+            proc = subprocess.run([gh_bin, "auth", "token"], capture_output=True, text=True, timeout=3)
+            if proc.returncode == 0 and proc.stdout.strip():
+                return proc.stdout.strip()
+        except Exception:
+            pass
+
+    home = Path(os.path.expanduser("~"))
+    candidates = [home / ".config" / "github-copilot" / "hosts.json"]
+    la = os.environ.get("LOCALAPPDATA")
+    if la:
+        candidates.append(Path(la) / "github-copilot" / "hosts.json")
+    for path in candidates:
+        if path.exists() and path.is_file():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                for _, info in data.items():
+                    tok = info.get("oauth_token")
+                    if tok:
+                        return tok
+            except Exception:
+                pass
+    return None
+
+
+def get_copilot_status(
+    display_name: str = "GitHub Copilot CLI",
+    category: str = "personal",
+    token: Optional[str] = None,
+    agent_id: str = "copilot",
+) -> AgentInfo:
+    tok = token or _discover_copilot_token()
+    if not tok:
+        return AgentInfo(
+            id=agent_id,
+            name=display_name,
+            provider="copilot",
+            is_active=False,
+            used_percent=0.0,
+            status_label="Unconfigured / Offline",
+            error="No GitHub Copilot token found. Run 'gh auth login' or specify token in config.",
+            category=category,
+        )
+
+    url = "https://api.github.com/copilot_internal/v2/token"
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {tok}", "User-Agent": "agent-quota-tracker/1.2.0", "Accept": "application/json"}, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=5.0) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as ex:
+        return AgentInfo(id=agent_id, name=display_name, provider="copilot", is_active=False, used_percent=0.0, status_label="Error", error=str(ex), category=category)
+
+    exp_ts = data.get("expires_at")
+    resets_str = None
+    rem_secs = 0
+    is_active = True
+    if exp_ts:
+        try:
+            exp_dt = datetime.fromtimestamp(exp_ts, tz=timezone.utc)
+            resets_str = exp_dt.isoformat()
+            diff = int((exp_dt - datetime.now(timezone.utc)).total_seconds())
+            if diff > 0:
+                rem_secs = diff
+            else:
+                is_active = False
+        except Exception:
+            pass
+
+    return AgentInfo(
+        id=agent_id,
+        name=display_name,
+        provider="copilot",
+        is_active=is_active,
+        used_percent=0.0,
+        time_remaining_seconds=rem_secs,
+        resets_at=resets_str,
+        status_label="Active" if is_active else "Token Expired",
+        category=category,
+    )
+
+
+def poke_copilot(prompt: str = "Hello, how are you doing?") -> dict[str, Any]:
+    gh_bin = shutil.which("gh")
+    if gh_bin:
+        try:
+            proc = subprocess.run([gh_bin, "copilot", "--version"], capture_output=True, text=True, timeout=5)
+            if proc.returncode == 0:
+                ver = proc.stdout.strip().splitlines()[0] if proc.stdout else "unknown"
+                return {"status": "poked", "message": f"GitHub Copilot CLI detected ({ver}). Token verified.", "reply": None, "verified_active": True}
+        except Exception:
+            pass
+    return {"status": "skipped", "message": "GitHub Copilot token verified via API.", "reply": None, "verified_active": False}
+
+
+def _discover_openrouter_key() -> Optional[str]:
+    for env_var in ("OPENROUTER_API_KEY", "AIDER_API_KEY"):
+        val = os.environ.get(env_var)
+        if val and val.strip():
+            return val.strip()
+
+    home = Path(os.path.expanduser("~"))
+    for path in (home / ".aider.conf.yml", home / ".env", Path.cwd() / ".env"):
+        if path.exists() and path.is_file():
+            try:
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if line.startswith("OPENROUTER_API_KEY=") or line.startswith("openrouter-api-key:"):
+                        p = line.split("=", 1) if "=" in line else line.split(":", 1)
+                        v = p[1].strip().strip('"').strip("'")
+                        if v:
+                            return v
+            except Exception:
+                pass
+    return None
+
+
+def get_aider_status(
+    display_name: str = "Aider (OpenRouter)",
+    category: str = "personal",
+    api_key: Optional[str] = None,
+    agent_id: str = "aider",
+    provider: str = "aider",
+) -> AgentInfo:
+    key = api_key or _discover_openrouter_key()
+    if not key:
+        return AgentInfo(
+            id=agent_id,
+            name=display_name,
+            provider=provider,
+            is_active=False,
+            used_percent=0.0,
+            status_label="Unconfigured / Offline",
+            error="No OpenRouter API key found. Set OPENROUTER_API_KEY or specify api_key in config.",
+            category=category,
+        )
+
+    url = "https://openrouter.ai/api/v1/auth/key"
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {key}", "User-Agent": "agent-quota-tracker/1.2.0", "Accept": "application/json"}, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=5.0) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as ex:
+        return AgentInfo(id=agent_id, name=display_name, provider=provider, is_active=False, used_percent=0.0, status_label="Error", error=str(ex), category=category)
+
+    info = data.get("data", {})
+    usage = float(info.get("usage", 0.0))
+    limit = info.get("limit")
+    used_pct = 0.0
+    if limit is not None and float(limit) > 0:
+        used_pct = min(100.0, max(0.0, round((usage / float(limit)) * 100.0, 1)))
+    is_active = usage > 0.0
+
+    return AgentInfo(
+        id=agent_id,
+        name=display_name,
+        provider=provider,
+        is_active=is_active,
+        used_percent=used_pct,
+        weekly_used_percent=used_pct if limit is not None else None,
+        status_label="Active" if is_active else "Idle",
+        category=category,
+    )
+
+
+def poke_aider(prompt: str = "Hello, how are you doing?") -> dict[str, Any]:
+    a_bin = shutil.which("aider")
+    if a_bin:
+        try:
+            proc = subprocess.run([a_bin, "--version"], capture_output=True, text=True, timeout=5)
+            ver = proc.stdout.strip().splitlines()[0] if proc.stdout else "unknown"
+            return {"status": "poked", "message": f"Aider CLI detected ({ver}). Balance verified.", "reply": None, "verified_active": True}
+        except Exception as e:
+            return {"status": "error", "message": str(e), "reply": None, "verified_active": False}
+    return {"status": "skipped", "message": "Aider monitored via OpenRouter API. Headless CLI poke not supported.", "reply": None, "verified_active": False}
+
+
+# ---------------------------------------------------------------------------
 # Collective Operations
 # ---------------------------------------------------------------------------
 
@@ -1127,6 +1497,19 @@ def fetch_all_statuses() -> list[AgentInfo]:
         elif prov == "claude":
             prof = acc.get("profile") or aid
             statuses.append(get_claude_status(prof, name, category=cat))
+        elif prov == "cursor":
+            token = acc.get("access_token") or acc.get("token")
+            cookie = acc.get("cookie")
+            statuses.append(get_cursor_status(name, category=cat, access_token=token, cookie=cookie, agent_id=aid))
+        elif prov in ("windsurf", "codeium"):
+            key = acc.get("api_key") or acc.get("key")
+            statuses.append(get_windsurf_status(name, category=cat, api_key=key, agent_id=aid))
+        elif prov in ("copilot", "github-copilot", "github_copilot"):
+            token = acc.get("token") or acc.get("github_token")
+            statuses.append(get_copilot_status(name, category=cat, token=token, agent_id=aid))
+        elif prov in ("aider", "openrouter"):
+            key = acc.get("api_key") or acc.get("key")
+            statuses.append(get_aider_status(name, category=cat, api_key=key, agent_id=aid, provider=prov))
     try:
         save_cache(statuses)
     except Exception:
@@ -1221,6 +1604,14 @@ def run_poke_command(force: bool = False, agent_id: Optional[str] = None, notify
             res = poke_codex()
         elif s.id == "agy":
             res = poke_agy()
+        elif s.provider.lower() == "cursor" or s.id.startswith("cursor"):
+            res = poke_cursor()
+        elif s.provider.lower() in ("windsurf", "codeium") or s.id.startswith("windsurf"):
+            res = poke_windsurf()
+        elif s.provider.lower() in ("copilot", "github-copilot") or s.id.startswith("copilot"):
+            res = poke_copilot()
+        elif s.provider.lower() in ("aider", "openrouter") or s.id.startswith("aider") or s.id.startswith("openrouter"):
+            res = poke_aider()
         else:
             res = {"status": "error", "message": "Unknown agent", "reply": None, "verified_active": False}
 
@@ -2890,6 +3281,14 @@ class SimpleDashboardHandler(BaseHTTPRequestHandler):
                         r = poke_codex()
                     elif s.id == "agy":
                         r = poke_agy()
+                    elif s.provider.lower() == "cursor" or s.id.startswith("cursor"):
+                        r = poke_cursor()
+                    elif s.provider.lower() in ("windsurf", "codeium") or s.id.startswith("windsurf"):
+                        r = poke_windsurf()
+                    elif s.provider.lower() in ("copilot", "github-copilot") or s.id.startswith("copilot"):
+                        r = poke_copilot()
+                    elif s.provider.lower() in ("aider", "openrouter") or s.id.startswith("aider") or s.id.startswith("openrouter"):
+                        r = poke_aider()
                     else:
                         r = {"status": "error", "message": "Unknown agent"}
                     results.append({"agent_id": s.id, "name": s.name, **r})

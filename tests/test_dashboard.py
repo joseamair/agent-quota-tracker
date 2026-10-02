@@ -42,12 +42,16 @@ def test_generate_html_file(tmp_path):
 
 @pytest.fixture(scope="module")
 def dashboard_test_server():
+    import agent_quota_tracker.dashboard as db_mod
+    db_mod._server_running = True
     server = QuietThreadingHTTPServer(("127.0.0.1", 0), DashboardHandler)
     host, port = server.server_address
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
     base_url = f"http://127.0.0.1:{port}"
     yield base_url
+    db_mod._server_running = False
+    db_mod._update_event.set()
     server.shutdown()
     server.server_close()
 
@@ -200,6 +204,8 @@ def test_api_stream_sse_initial_chunk(dashboard_test_server):
         assert "event: quota_update" in chunk
         assert "agy" in chunk
         conn.close()
+        _update_event.set()
+        time.sleep(0.05)
 
 
 def test_get_api_history(dashboard_test_server):

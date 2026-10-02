@@ -2319,7 +2319,7 @@ def run_countdown(total_seconds: int, prefix: str) -> None:
         sys.stdout.write(f"\r{padded}")
         sys.stdout.flush()
         time.sleep(1)
-    sys.stdout.write("\r" + " " * max_len + "\r")
+    sys.stdout.write("\n")
     sys.stdout.flush()
 
 
@@ -2348,15 +2348,16 @@ def run_auto_checker_loop(
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             print(f"▶ Auto-Checker Cycle #{cycle} • {now_str}")
 
-            # Step 1: Print current status table
-            print_status_table()
-
-            # Step 2: Check if any agent is currently idle & ready to poke
+            # Step 1: Fetch and display current status table
             statuses = fetch_all_statuses()
+            print_status_table(statuses=statuses)
+
+            # Filter if target agent specified
             if agent_id:
                 target = agent_id.lower()
                 statuses = [s for s in statuses if s.id == target or s.id == f"claude-{target}"]
 
+            # Step 2: Check if any agent is currently idle & ready to poke
             idle_ready = [
                 s for s in statuses
                 if not s.is_active and (force or s.weekly_used_percent is None or s.weekly_used_percent < 100.0)
@@ -2366,27 +2367,31 @@ def run_auto_checker_loop(
                 ready_names = ", ".join(s.name for s in idle_ready)
                 print(f"⚡ Found {len(idle_ready)} idle account(s) ready to prime ({ready_names}). Poking now...\n")
                 run_poke_command(force=force, agent_id=agent_id, notify=notify)
-                print_status_table()
                 statuses = fetch_all_statuses()
+                print_status_table(statuses=statuses)
                 if agent_id:
                     target = agent_id.lower()
                     statuses = [s for s in statuses if s.id == target or s.id == f"claude-{target}"]
+            else:
+                print("✔ All monitored accounts are currently active. Monitoring rolling 5h reset windows...")
 
             # Step 3: Compute earliest next window expiration
             sleep_secs, reason = compute_adaptive_sleep_seconds(statuses, force=force)
             wake_time = (datetime.now() + timedelta(seconds=sleep_secs)).strftime("%H:%M:%S")
-            print()
+
+            print(f"⏳ Next poke target: {wake_time} ({reason})")
+            print("Ticking countdown started. Press Ctrl+C to stop.\n")
 
             # Step 4: Ticking countdown (in-place)
-            run_countdown(sleep_secs, f"Next poke at {wake_time} ({reason})")
+            run_countdown(sleep_secs, f"Next poke at {wake_time} • {reason}")
             print(f"\n⚡ Timer reached ({wake_time})! Priming newly available quota window(s)...\n")
             run_poke_command(force=force, agent_id=agent_id, notify=notify)
             cycle += 1
             print()
     except KeyboardInterrupt:
-        sys.stdout.write("\r" + " " * 85 + "\r")
+        sys.stdout.write("\n")
         sys.stdout.flush()
-        print("\n⚡ Auto-checker loop stopped by user.\n")
+        print("⚡ Auto-checker loop stopped by user.\n")
 
 
 def run_poke_watch_loop(
@@ -2423,7 +2428,7 @@ def run_poke_watch_loop(
             run_countdown(sleep_secs, f"Next check at {wake_time}")
             cycle += 1
     except KeyboardInterrupt:
-        sys.stdout.write("\r" + " " * 85 + "\r")
+        sys.stdout.write("\n")
         sys.stdout.flush()
         print("\n⚡ Poke watchdog mode stopped.\n")
 
@@ -2456,7 +2461,7 @@ def run_poke_at(
     try:
         run_countdown(delta_secs, f"Priming scheduled for {target_dt.strftime('%H:%M:%S')} ({relative_day})")
     except KeyboardInterrupt:
-        sys.stdout.write("\r" + " " * 85 + "\r")
+        sys.stdout.write("\n")
         sys.stdout.flush()
         print("\n⚡ Scheduled poke cancelled by user.\n")
         return
@@ -2474,12 +2479,13 @@ def run_poke_at(
         run_poke_watch_loop(interval_arg=watch_interval, force=force, agent_id=agent_id, notify=notify)
 
 
-def print_status_table(as_json: bool = False) -> None:
-    statuses = fetch_all_statuses()
+def print_status_table(as_json: bool = False, statuses: Optional[list[AgentInfo]] = None) -> list[AgentInfo]:
+    if statuses is None:
+        statuses = fetch_all_statuses()
     if as_json:
         import json
         print(json.dumps([s.to_dict() for s in statuses], indent=2))
-        return
+        return statuses
 
     try:
         term_w = shutil.get_terminal_size(fallback=(110, 24)).columns
@@ -2553,6 +2559,7 @@ def print_status_table(as_json: bool = False) -> None:
             print(f"{name:<14} {state_str:<10} {left_str:<9} {reset_str:<7} {usage_str:<6} {wk_usage:<6} {wk_reset}")
 
         print("=" * bar_len + "\n")
+        return statuses
 
 
 # ---------------------------------------------------------------------------
@@ -5040,6 +5047,13 @@ Examples:
         help="Alias for --auto.",
     )
     parser.add_argument(
+        "--max-cycles",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Maximum number of auto-checker cycles to run before cleanly exiting.",
+    )
+    parser.add_argument(
         "--analytics",
         "--insights",
         action="store_true",
@@ -5143,6 +5157,7 @@ Examples:
             force=args.force,
             agent_id=args.agent,
             notify=args.notify,
+            max_cycles=args.max_cycles,
         )
     elif args.poke_at:
         run_poke_at(

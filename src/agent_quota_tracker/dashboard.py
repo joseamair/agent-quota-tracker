@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 import time
 import webbrowser
@@ -1693,6 +1694,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         # Suppress noisy HTTP request logging in terminal
         pass
 
+    def handle(self) -> None:
+        try:
+            super().handle()
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
+            pass
+
     def do_GET(self) -> None:
         if self.path in ("/", "/index.html"):
             self.send_response(200)
@@ -1836,6 +1843,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
 
+class QuietThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer that suppresses noisy browser connection resets and socket aborts."""
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        exc_type, exc_val, _ = sys.exc_info()
+        if exc_type is not None and issubclass(
+            exc_type, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError)
+        ):
+            return
+        super().handle_error(request, client_address)
+
+
 def start_dashboard_server(port: int = 5050, open_browser: bool = True) -> None:
     global _server_running
     _server_running = True
@@ -1843,7 +1862,7 @@ def start_dashboard_server(port: int = 5050, open_browser: bool = True) -> None:
     html_file = Path("dashboard.html")
     generate_html_file(html_file)
 
-    server = ThreadingHTTPServer(("127.0.0.1", port), DashboardHandler)
+    server = QuietThreadingHTTPServer(("127.0.0.1", port), DashboardHandler)
     url = f"http://localhost:{port}"
 
     print(f"\n🚀 Agents Dashboard v2 running at {url}")

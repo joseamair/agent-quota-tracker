@@ -13,6 +13,7 @@ import pytest
 
 from agent_quota_tracker.dashboard import (
     DashboardHandler,
+    QuietThreadingHTTPServer,
     generate_html_file,
     HTML_TEMPLATE,
     _update_event,
@@ -41,7 +42,7 @@ def test_generate_html_file(tmp_path):
 
 @pytest.fixture(scope="module")
 def dashboard_test_server():
-    server = ThreadingHTTPServer(("127.0.0.1", 0), DashboardHandler)
+    server = QuietThreadingHTTPServer(("127.0.0.1", 0), DashboardHandler)
     host, port = server.server_address
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
@@ -269,4 +270,36 @@ def test_get_api_backfill(dashboard_test_server):
             data = json.loads(resp.read().decode("utf-8"))
             assert data["success"] is True
             assert data["pokes_imported"] == 2
+
+
+def test_quiet_server_suppresses_connection_aborts():
+    server = QuietThreadingHTTPServer(("127.0.0.1", 0), DashboardHandler)
+    try:
+        with patch.object(ThreadingHTTPServer, "handle_error") as mock_super_handle_error:
+            # Simulate a ConnectionAbortedError (WinError 10053)
+            try:
+                raise ConnectionAbortedError(10053, "An established connection was aborted by the software in your host machine")
+            except ConnectionAbortedError:
+                server.handle_error(None, ("127.0.0.1", 12345))
+
+            # Super handle_error should NOT have been called for aborted socket
+            mock_super_handle_error.assert_not_called()
+
+            # Simulate a real unexpected exception
+            try:
+                raise ValueError("unexpected crash")
+            except ValueError:
+                server.handle_error(None, ("127.0.0.1", 12345))
+
+            # Super handle_error SHOULD have been called for real unexpected errors
+            mock_super_handle_error.assert_called_once()
+    finally:
+        server.server_close()
+
+
+def test_dashboard_handler_handle_catches_connection_abort():
+    handler = DashboardHandler.__new__(DashboardHandler)
+    with patch("http.server.BaseHTTPRequestHandler.handle", side_effect=ConnectionAbortedError(10053, "Aborted")):
+        # Should catch and handle without raising
+        handler.handle()
 

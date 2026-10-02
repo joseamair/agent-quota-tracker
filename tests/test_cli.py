@@ -286,4 +286,85 @@ def test_run_auto_checker_loop_keyboard_interrupt(monkeypatch):
     run_auto_checker_loop(max_cycles=1)
 
 
+def test_print_status_table_with_provided_statuses(monkeypatch):
+    from unittest.mock import MagicMock
+    from agent_quota_tracker.cli import print_status_table
+    from agent_quota_tracker.models import AgentStatus
+
+    mock_get_all = MagicMock()
+    monkeypatch.setattr("agent_quota_tracker.cli.get_all_statuses", mock_get_all)
+
+    dummy = [
+        AgentStatus(
+            id="agy",
+            name="Google Antigravity (AGY)",
+            provider="agy",
+            is_active=True,
+            used_percent=25.0,
+            time_remaining_seconds=12000,
+            time_remaining_str="3h 20m",
+        )
+    ]
+    returned = print_status_table(statuses=dummy)
+    assert returned == dummy
+    mock_get_all.assert_not_called()
+
+
+def test_run_auto_checker_loop_all_active(monkeypatch):
+    from unittest.mock import MagicMock
+    from agent_quota_tracker.cli import run_auto_checker_loop
+    from agent_quota_tracker.models import AgentStatus
+
+    active_agent = AgentStatus(
+        id="personal",
+        name="Claude (Personal)",
+        provider="claude",
+        is_active=True,
+        used_percent=1.0,
+        time_remaining_seconds=15420,
+        time_remaining_str="4h 17m",
+        weekly_used_percent=30.0,
+    )
+    mock_statuses = [active_agent]
+    mock_get_all = MagicMock(return_value=mock_statuses)
+    mock_print_table = MagicMock()
+    mock_run_poke = MagicMock()
+    mock_run_countdown = MagicMock()
+
+    monkeypatch.setattr("agent_quota_tracker.cli.get_all_statuses", mock_get_all)
+    monkeypatch.setattr("agent_quota_tracker.cli.print_status_table", mock_print_table)
+    monkeypatch.setattr("agent_quota_tracker.cli.run_poke", mock_run_poke)
+    monkeypatch.setattr("agent_quota_tracker.cli.run_countdown", mock_run_countdown)
+
+    # Run 1 cycle with all active agents
+    run_auto_checker_loop(force=False, notify=False, max_cycles=1)
+
+    # Verified:
+    # 1. get_all_statuses called exactly once (no redundant fetch!)
+    assert mock_get_all.call_count == 1
+    # 2. Table printed with statuses
+    assert mock_print_table.call_count == 1
+    # 3. Only the end-of-countdown poke was called (initial idle poke was skipped because 0 idle agents)
+    assert mock_run_poke.call_count == 1
+    # 4. Countdown called with 15420 + 45 = 15465
+    assert mock_run_countdown.call_count == 1
+    assert mock_run_countdown.call_args[0][0] == 15465
+
+
+def test_run_countdown_basic(monkeypatch):
+    import io
+    import sys
+    from agent_quota_tracker.cli import run_countdown
+
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", out)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+
+    run_countdown(total_seconds=2, prefix="Testing")
+    val = out.getvalue()
+    assert "Testing" in val
+    assert "\n" in val
+
+
+
 

@@ -766,7 +766,7 @@ function Get-AgentData {
     return $results
 }
 
-function Show-StatusTable {
+function Show-StatusTable($InputData = $null) {
     $winWidth = 120
     try {
         if ($Host -and $Host.UI -and $Host.UI.RawUI) {
@@ -778,6 +778,7 @@ function Show-StatusTable {
 
     $nowStr = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
     $nowTime = (Get-Date).ToString("HH:mm:ss")
+    $data = if ($InputData) { $InputData } else { Get-AgentData }
 
     if ($winWidth -ge 115) {
         Write-Host "`n⚡ AI AGENTS 5-HOUR & WEEKLY WINDOW QUOTA STATUS  •  Checked: $nowStr" -ForegroundColor Cyan
@@ -785,7 +786,6 @@ function Show-StatusTable {
         $header = "{0,-24} {1,-8} {2,-10} {3,-11} {4,-18} {5,-8} {6,-8} {7}" -f "Agent / Account", "Provider", "5h State", "5h Left", "5h Reset", "5h Use", "Wk Use", "Weekly Reset"
         Write-Host $header -ForegroundColor Yellow
         Write-Host ("-" * 110) -ForegroundColor DarkGray
-        $data = Get-AgentData
         foreach ($a in $data) {
             $wkVal = $null
             if ($a.WkUsage -and $a.WkUsage -ne "-" -and $a.WkUsage -match "(\d+(\.\d+)?)") {
@@ -803,7 +803,6 @@ function Show-StatusTable {
         $header = "{0,-14} {1,-10} {2,-9} {3,-7} {4,-6} {5,-6} {6}" -f "Agent", "State", "Left", "Reset", "5h%", "Wk%", "Weekly"
         Write-Host $header -ForegroundColor Yellow
         Write-Host ("-" * 80) -ForegroundColor DarkGray
-        $data = Get-AgentData
         foreach ($a in $data) {
             $shortName = $a.Name.Replace("Google Antigravity (AGY)", "Antigravity").Replace("OpenAI Codex", "Codex").Replace("Claude (", "").Replace(")", "")
             $shortState = if ($a.IsActive) { "● ACTIVE" } else { "○ INACT" }
@@ -828,6 +827,7 @@ function Show-StatusTable {
         }
         Write-Host ("=" * 80 + "`n") -ForegroundColor DarkCyan
     }
+    return $data
 }
 
 if ($Prompt -or -not [string]::IsNullOrEmpty($PromptFormat)) {
@@ -917,7 +917,7 @@ function Start-Countdown($totalSecs, $prefix) {
         Write-Host -NoNewline "`r$padded"
         Start-Sleep -Seconds 1
     }
-    Write-Host -NoNewline ("`r" + (" " * $maxLen) + "`r")
+    Write-Host ""
 }
 
 function Send-DesktopNotification {
@@ -1267,16 +1267,17 @@ if ($Auto -or $AutoPoke) {
             $nowStr = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
             Write-Host "▶ Auto-Checker Cycle #$cycle • $nowStr" -ForegroundColor Magenta
 
-            # Step 1: Print status table
-            Show-StatusTable
-
-            # Step 2: Check for idle & ready accounts
+            # Step 1: Fetch and display status table
             $currentData = Get-AgentData
+            Show-StatusTable $currentData
+
+            # Filter if target agent specified
             if ($TargetAgent) {
                 $targetLower = $TargetAgent.ToLower()
                 $currentData = $currentData | Where-Object { $_.Id -eq $targetLower -or $_.Id -eq "claude-$targetLower" }
             }
 
+            # Step 2: Check for idle & ready accounts
             $idleReady = @()
             foreach ($item in $currentData) {
                 $wkDbl = $null
@@ -1293,12 +1294,14 @@ if ($Auto -or $AutoPoke) {
                 $readyNames = ($idleReady | ForEach-Object { $_.Name }) -join ", "
                 Write-Host "⚡ Found $($idleReady.Count) idle account(s) ready to prime ($readyNames). Poking now...`n" -ForegroundColor Yellow
                 Invoke-PokeAgents $Force $TargetAgent -NotifyAlert:$Notify
-                Show-StatusTable
                 $currentData = Get-AgentData
+                Show-StatusTable $currentData
                 if ($TargetAgent) {
                     $targetLower = $TargetAgent.ToLower()
                     $currentData = $currentData | Where-Object { $_.Id -eq $targetLower -or $_.Id -eq "claude-$targetLower" }
                 }
+            } else {
+                Write-Host "✔ All monitored accounts are currently active. Monitoring rolling 5h reset windows..." -ForegroundColor Green
             }
 
             # Step 3: Compute earliest next window expiration
@@ -1323,16 +1326,17 @@ if ($Auto -or $AutoPoke) {
             }
 
             $wakeTime = (Get-Date).AddSeconds($sleepSecs).ToString("HH:mm:ss")
-            Write-Host ""
+            Write-Host "⏳ Next poke target: $wakeTime ($reason)" -ForegroundColor Cyan
+            Write-Host "Ticking countdown started. Press Ctrl+C to stop.`n" -ForegroundColor DarkGray
 
             # Step 4: Countdown & Poke
-            Start-Countdown $sleepSecs "Next poke at $wakeTime ($reason)"
+            Start-Countdown $sleepSecs "Next poke at $wakeTime • $reason"
             Write-Host "`n⚡ Timer reached ($wakeTime)! Priming newly available quota window(s)...`n" -ForegroundColor Green
             Invoke-PokeAgents $Force $TargetAgent -NotifyAlert:$Notify
             $cycle++
         }
     } catch {
-        Write-Host "`n`n⚡ Auto-checker loop stopped by user.`n" -ForegroundColor Yellow
+        Write-Host "`n⚡ Auto-checker loop stopped by user.`n" -ForegroundColor Yellow
         exit 0
     }
 }

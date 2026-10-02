@@ -298,12 +298,17 @@ def build_status_table(
     return table
 
 
-def print_status_table(as_json: bool = False, term_w: Optional[int] = None) -> None:
-    statuses = get_all_statuses()
+def print_status_table(
+    as_json: bool = False,
+    term_w: Optional[int] = None,
+    statuses: Optional[list[AgentStatus]] = None,
+) -> list[AgentStatus]:
+    if statuses is None:
+        statuses = get_all_statuses()
     if as_json:
         import json
         print(json.dumps([s.to_dict() for s in statuses], indent=2))
-        return
+        return statuses
 
     width = term_w or get_terminal_width()
     table = build_status_table(statuses, term_w=width)
@@ -311,6 +316,7 @@ def print_status_table(as_json: bool = False, term_w: Optional[int] = None) -> N
     active_console.print()
     active_console.print(table)
     active_console.print()
+    return statuses
 
 
 def run_poke(
@@ -381,7 +387,7 @@ def run_countdown(total_seconds: int, prefix: str) -> None:
         sys.stdout.write(f"\r{padded}")
         sys.stdout.flush()
         time.sleep(1)
-    sys.stdout.write("\r" + " " * max_len + "\r")
+    sys.stdout.write("\n")
     sys.stdout.flush()
 
 
@@ -411,15 +417,16 @@ def run_auto_checker_loop(
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             console.print(f"[bold magenta]▶ Auto-Checker Cycle #{cycle}[/bold magenta] [dim]• {now_str}[/dim]")
 
-            # Step 1: Print current status table
-            print_status_table()
-
-            # Step 2: Check if any agent is currently idle & ready to poke
+            # Step 1: Fetch and display current status table
             statuses = get_all_statuses()
+            print_status_table(statuses=statuses)
+
+            # Filter if target agent specified
             if agent_id:
                 target = agent_id.lower()
                 statuses = [s for s in statuses if s.id == target or s.id == f"claude-{target}"]
 
+            # Step 2: Check if any agent is currently idle & ready to poke
             idle_ready = [
                 s for s in statuses
                 if not s.is_active and (force or s.weekly_used_percent is None or s.weekly_used_percent < 100.0)
@@ -427,29 +434,33 @@ def run_auto_checker_loop(
 
             if idle_ready:
                 ready_names = ", ".join(s.name for s in idle_ready)
-                console.print(f"[bold yellow]⚡ Found {len(idle_ready)} idle account(s) ready to prime ({ready_names}). Poking now...[/bold yellow]")
+                console.print(f"[bold yellow]⚡ Found {len(idle_ready)} idle account(s) ready to prime ({ready_names}). Poking now...[/bold yellow]\n")
                 run_poke(force=force, agent_id=agent_id, notify=notify)
-                print_status_table()
                 statuses = get_all_statuses()
+                print_status_table(statuses=statuses)
                 if agent_id:
                     target = agent_id.lower()
                     statuses = [s for s in statuses if s.id == target or s.id == f"claude-{target}"]
+            else:
+                console.print(f"[bold green]✔ All monitored accounts are currently active. Monitoring rolling 5h reset windows...[/bold green]")
 
             # Step 3: Compute earliest next window expiration
             sleep_secs, reason = compute_adaptive_sleep_seconds(statuses, force=force)
             wake_time = (datetime.now() + timedelta(seconds=sleep_secs)).strftime("%H:%M:%S")
-            console.print()
+
+            console.print(f"[bold cyan]⏳ Next poke target: [bold white]{wake_time}[/bold white] ({reason})[/bold cyan]")
+            console.print(f"[dim]Ticking countdown started. Press Ctrl+C to stop.[/dim]\n")
 
             # Step 4: Ticking countdown (in-place)
-            run_countdown(sleep_secs, f"Next poke at {wake_time} ({reason})")
-            console.print(f"\n[bold green]⚡ Timer reached ({wake_time})! Priming newly available quota window(s)...[/bold green]")
+            run_countdown(sleep_secs, f"Next poke at {wake_time} • {reason}")
+            console.print(f"\n[bold green]⚡ Timer reached ({wake_time})! Priming newly available quota window(s)...[/bold green]\n")
             run_poke(force=force, agent_id=agent_id, notify=notify)
             cycle += 1
             console.print()
     except KeyboardInterrupt:
-        sys.stdout.write("\r" + " " * 85 + "\r")
+        sys.stdout.write("\n")
         sys.stdout.flush()
-        console.print("\n[bold yellow]⚡ Auto-checker loop stopped by user.[/bold yellow]\n")
+        console.print("[bold yellow]⚡ Auto-checker loop stopped by user.[/bold yellow]\n")
 
 
 def run_poke_watch_loop(
@@ -489,9 +500,9 @@ def run_poke_watch_loop(
             run_countdown(sleep_secs, f"Next check at {wake_time}")
             cycle += 1
     except KeyboardInterrupt:
-        sys.stdout.write("\r" + " " * 85 + "\r")
+        sys.stdout.write("\n")
         sys.stdout.flush()
-        console.print("\n[bold yellow]⚡ Poke watchdog mode stopped.[/bold yellow]\n")
+        console.print("[bold yellow]⚡ Poke watchdog mode stopped.[/bold yellow]\n")
 
 
 def run_poke_at(
@@ -523,9 +534,9 @@ def run_poke_at(
     try:
         run_countdown(delta_secs, f"Priming scheduled for {target_dt.strftime('%H:%M:%S')} ({relative_day})")
     except KeyboardInterrupt:
-        sys.stdout.write("\r" + " " * 85 + "\r")
+        sys.stdout.write("\n")
         sys.stdout.flush()
-        console.print("\n[bold yellow]⚡ Scheduled poke cancelled by user.[/bold yellow]\n")
+        console.print("[bold yellow]⚡ Scheduled poke cancelled by user.[/bold yellow]\n")
         return
 
     console.print(f"\n[bold green]⚡ Target time reached ({target_str})! Initiating scheduled poke...[/bold green]\n")
@@ -897,6 +908,13 @@ Examples:
         help="Alias for --auto.",
     )
     parser.add_argument(
+        "--max-cycles",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Maximum number of auto-checker cycles to run before cleanly exiting.",
+    )
+    parser.add_argument(
         "--analytics",
         "--insights",
         action="store_true",
@@ -1002,6 +1020,7 @@ Examples:
             force=args.force,
             agent_id=args.agent,
             notify=args.notify,
+            max_cycles=args.max_cycles,
         )
     elif args.poke_at:
         run_poke_at(

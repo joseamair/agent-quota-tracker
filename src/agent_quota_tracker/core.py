@@ -115,11 +115,13 @@ def get_all_statuses() -> list[AgentStatus]:
     with ThreadPoolExecutor(max_workers=max(1, len(trackers))) as executor:
         statuses = list(executor.map(lambda t: t.get_status(), trackers))
 
-    # Update local disk cache for fast prompt evaluations
+    # Update local disk cache and SQLite timeseries history
     try:
         from agent_quota_tracker.cache import save_cache
+        from agent_quota_tracker.history import record_snapshots
 
         save_cache(statuses)
+        record_snapshots(statuses)
     except Exception:
         pass
 
@@ -141,17 +143,26 @@ def poke_all(
         if not force:
             st = t.get_status()
             if st.is_active:
-                results.append(
-                    PokeResult(
-                        agent_id=t.agent_id,
-                        agent_name=t.display_name,
-                        action_taken="skipped",
-                        message=f"5h window is already active ({st.time_remaining_str} remaining, {st.used_percent}% used). Skipped poke.",
-                    )
+                skipped_res = PokeResult(
+                    agent_id=t.agent_id,
+                    agent_name=t.display_name,
+                    action_taken="skipped",
+                    message=f"5h window is already active ({st.time_remaining_str} remaining, {st.used_percent}% used). Skipped poke.",
                 )
+                results.append(skipped_res)
+                try:
+                    from agent_quota_tracker.history import record_poke
+                    record_poke(skipped_res.agent_id, skipped_res.agent_name, skipped_res.action_taken, skipped_res.message)
+                except Exception:
+                    pass
                 continue
 
         res = t.poke(prompt=prompt, force=force)
         results.append(res)
+        try:
+            from agent_quota_tracker.history import record_poke
+            record_poke(res.agent_id, res.agent_name, res.action_taken, res.message)
+        except Exception:
+            pass
 
     return results

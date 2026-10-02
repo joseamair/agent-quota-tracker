@@ -199,3 +199,51 @@ def test_api_stream_sse_initial_chunk(dashboard_test_server):
         assert "event: quota_update" in chunk
         assert "agy" in chunk
         conn.close()
+
+
+def test_get_api_history(dashboard_test_server):
+    mock_history = [
+        {
+            "timestamp": 1700000000.0,
+            "timestamp_iso": "2026-10-02T10:00:00Z",
+            "agent_id": "codex",
+            "agent_name": "OpenAI Codex",
+            "provider": "codex",
+            "is_active": True,
+            "used_percent": 30.0,
+            "weekly_used_percent": 15.0,
+            "time_remaining_seconds": 3600,
+        }
+    ]
+    with patch("agent_quota_tracker.dashboard.get_history_points", return_value=mock_history):
+        url = f"{dashboard_test_server}/api/history?agent_id=codex&hours=24"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            assert resp.status == 200
+            data = json.loads(resp.read().decode("utf-8"))
+            assert len(data) == 1
+            assert data[0]["agent_id"] == "codex"
+            assert data[0]["used_percent"] == 30.0
+
+
+def test_get_api_analytics(dashboard_test_server):
+    mock_analytics = {
+        "total_snapshots": 10,
+        "total_pokes": 2,
+        "days_analyzed": 7,
+        "active_time_ratio": 45.0,
+        "peak_hours": [9, 14],
+        "peak_hours_str": "09:00, 14:00",
+        "recommended_poke_time": "07:30",
+        "recommendation_reason": "Derived from morning peak",
+        "hourly_activity": {str(h): 1 for h in range(24)},
+        "agent_stats": {"codex": {"max_used_percent": 50.0, "active_snapshots": 5}},
+    }
+    with patch("agent_quota_tracker.dashboard.get_analytics_summary", return_value=mock_analytics):
+        url = f"{dashboard_test_server}/api/analytics?days=7"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            assert resp.status == 200
+            data = json.loads(resp.read().decode("utf-8"))
+            assert data["total_snapshots"] == 10
+            assert data["active_time_ratio"] == 45.0
+            assert data["recommended_poke_time"] == "07:30"
+

@@ -8,8 +8,10 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import parse_qs, urlparse
 
 from agent_quota_tracker.core import get_all_statuses, poke_all
+from agent_quota_tracker.history import get_analytics_summary, get_history_points
 from agent_quota_tracker.scheduler import (
     get_schedule_status,
     install_schedule,
@@ -737,6 +739,180 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       transform: translateY(0);
       pointer-events: auto;
     }
+
+    /* Analytics Section */
+    .analytics-section {
+      margin-top: 2.25rem;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      padding: 1.75rem;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+    }
+
+    .analytics-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .analytics-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .period-selector {
+      display: flex;
+      gap: 0.4rem;
+      background: var(--box-bg);
+      padding: 0.25rem;
+      border-radius: 10px;
+      border: 1px solid var(--card-border);
+    }
+
+    .period-btn {
+      padding: 0.35rem 0.75rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-muted);
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .period-btn:hover {
+      color: var(--text-main);
+    }
+
+    .period-btn.active {
+      background: var(--cyan);
+      color: #000;
+      font-weight: 700;
+    }
+
+    .analytics-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .analytics-metric-card {
+      background: var(--box-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 1rem 1.2rem;
+    }
+
+    .analytics-metric-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.35rem;
+    }
+
+    .analytics-metric-value {
+      font-size: 1.35rem;
+      font-weight: 800;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .analytics-metric-sub {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 0.35rem;
+    }
+
+    .chart-box {
+      background: var(--box-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .chart-box-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .chart-box-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+    }
+
+    .chart-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.85rem;
+      font-size: 0.75rem;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .hourly-grid {
+      display: flex;
+      align-items: flex-end;
+      gap: 4px;
+      height: 90px;
+      padding-top: 15px;
+    }
+
+    .hourly-bar-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      height: 100%;
+      justify-content: flex-end;
+      position: relative;
+    }
+
+    .hourly-bar {
+      width: 100%;
+      border-radius: 4px 4px 0 0;
+      background: rgba(6, 182, 212, 0.4);
+      min-height: 4px;
+      transition: height 0.4s ease, background 0.2s ease;
+    }
+
+    .hourly-bar.peak {
+      background: var(--cyan);
+      box-shadow: 0 0 8px rgba(6, 182, 212, 0.5);
+    }
+
+    .hourly-bar-label {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+      font-family: 'JetBrains Mono', monospace;
+    }
   </style>
 </head>
 <body>
@@ -789,6 +965,63 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="grid" id="agents-grid">
       <!-- Agent cards injected dynamically -->
     </div>
+
+    <!-- Historical Analytics & Burn-Down Section -->
+    <section class="analytics-section">
+      <div class="analytics-header">
+        <div class="analytics-title">
+          <span>📊 Quota Velocity &amp; Burn-Down Analytics</span>
+          <span style="font-size: 0.75rem; font-weight: normal; color: var(--text-muted);">Historical SQLite Timeseries</span>
+        </div>
+        <div class="period-selector">
+          <button class="period-btn" onclick="changeAnalyticsPeriod(1, this)">24h</button>
+          <button class="period-btn" onclick="changeAnalyticsPeriod(3, this)">3 Days</button>
+          <button class="period-btn active" onclick="changeAnalyticsPeriod(7, this)">7 Days</button>
+          <button class="period-btn" onclick="changeAnalyticsPeriod(14, this)">14 Days</button>
+        </div>
+      </div>
+
+      <div class="analytics-summary-grid">
+        <div class="analytics-metric-card">
+          <div class="analytics-metric-label">Active Time Ratio</div>
+          <div class="analytics-metric-value" id="ana-active-ratio" style="color: var(--emerald);">0.0%</div>
+          <div class="analytics-metric-sub">Percent of tracked time active</div>
+        </div>
+        <div class="analytics-metric-card">
+          <div class="analytics-metric-label">Peak Usage Hours</div>
+          <div class="analytics-metric-value" id="ana-peak-hours" style="color: var(--cyan); font-size: 1.1rem;">-</div>
+          <div class="analytics-metric-sub">Highest prompt consumption block</div>
+        </div>
+        <div class="analytics-metric-card">
+          <div class="analytics-metric-label">Optimal Morning Priming</div>
+          <div class="analytics-metric-value" id="ana-rec-time" style="color: var(--amber);">⚡ 07:30</div>
+          <div class="analytics-metric-sub" id="ana-rec-reason">Aligns 5h window for midday reset</div>
+        </div>
+        <div class="analytics-metric-card">
+          <div class="analytics-metric-label">Logged Snapshots</div>
+          <div class="analytics-metric-value" id="ana-events" style="color: var(--indigo);">0 snaps</div>
+          <div class="analytics-metric-sub" id="ana-pokes">0 verified pokes</div>
+        </div>
+      </div>
+
+      <!-- Burn-Down Velocity Chart -->
+      <div class="chart-box">
+        <div class="chart-box-header">
+          <div class="chart-box-title">⚡ 5-Hour Quota Utilization Burn-Down &amp; Velocity</div>
+          <div class="chart-legend" id="chart-legend"></div>
+        </div>
+        <div id="chart-container" style="position: relative; width: 100%; min-height: 200px;"></div>
+      </div>
+
+      <!-- 24-Hour Activity Distribution Heatmap -->
+      <div class="chart-box" style="margin-bottom: 0;">
+        <div class="chart-box-header">
+          <div class="chart-box-title">🕒 24-Hour Diurnal Activity Distribution</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted);">Hourly event density (local time)</div>
+        </div>
+        <div class="hourly-grid" id="hourly-bars"></div>
+      </div>
+    </section>
   </div>
 
   <!-- Scheduled Morning Priming Modal -->
@@ -914,6 +1147,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             agentsData = JSON.parse(e.data);
             setStreamStatus('live');
             render();
+            fetchAnalytics();
           } catch (err) {
             console.error("SSE parse error:", err);
           }
@@ -956,6 +1190,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         render();
         if (forceRefresh) {
           showToast("Refreshed latest quota data from providers", "✔");
+          fetchAnalytics();
         }
       } catch (err) {
         console.error("Error fetching status:", err);
@@ -1243,9 +1478,182 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       }
     }
 
+    // Historical Analytics & Burn-Down Logic
+    const AGENT_COLORS = {
+      antigravity: "#06b6d4",
+      codex: "#10b981",
+      personal: "#8b5cf6",
+      work: "#f59e0b",
+      work2: "#f43f5e",
+      cursor: "#3b82f6",
+      windsurf: "#14b8a6",
+      copilot: "#a855f7",
+      aider: "#ec4899"
+    };
+
+    function getAgentColor(agentId) {
+      const clean = (agentId || "").toLowerCase().replace("claude-", "");
+      return AGENT_COLORS[clean] || "#94a3b8";
+    }
+
+    let currentAnalyticsDays = 7;
+
+    async function fetchAnalytics(days = currentAnalyticsDays) {
+      try {
+        const [anaRes, histRes] = await Promise.all([
+          fetch(`/api/analytics?days=${days}`),
+          fetch(`/api/history?hours=${days * 24}`)
+        ]);
+        if (!anaRes.ok || !histRes.ok) return;
+        const analytics = await anaRes.json();
+        const history = await histRes.json();
+
+        renderAnalyticsSummary(analytics);
+        renderBurndownChart(history);
+        renderHourlyDistribution(analytics.hourly_activity, analytics.peak_hours);
+      } catch (err) {
+        console.error("Error fetching analytics:", err);
+      }
+    }
+
+    function changeAnalyticsPeriod(days, btn) {
+      currentAnalyticsDays = days;
+      document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      fetchAnalytics(days);
+    }
+
+    function renderAnalyticsSummary(data) {
+      document.getElementById("ana-active-ratio").innerText = `${data.active_time_ratio}%`;
+      document.getElementById("ana-peak-hours").innerText = data.peak_hours_str || "No activity yet";
+      document.getElementById("ana-rec-time").innerText = `⚡ ${data.recommended_poke_time}`;
+      document.getElementById("ana-rec-reason").innerText = data.recommendation_reason || "Aligned for workday priming";
+      document.getElementById("ana-events").innerText = `${data.total_snapshots} snaps`;
+      document.getElementById("ana-pokes").innerText = `${data.total_pokes} verified pokes`;
+    }
+
+    function renderBurndownChart(history) {
+      const container = document.getElementById("chart-container");
+      const legend = document.getElementById("chart-legend");
+      legend.innerHTML = "";
+
+      if (!history || history.length === 0) {
+        container.innerHTML = `
+          <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 180px; color: var(--text-muted); font-size: 0.85rem;">
+            <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">📈</div>
+            <div>No historical quota records logged yet.</div>
+            <div style="font-size: 0.75rem; margin-top: 0.25rem;">Snapshots are recorded automatically as status checks and auto-checker runs.</div>
+          </div>
+        `;
+        return;
+      }
+
+      const byAgent = {};
+      const agentNames = {};
+      let minTs = Infinity;
+      let maxTs = -Infinity;
+
+      history.forEach(pt => {
+        const aid = pt.agent_id;
+        if (!byAgent[aid]) byAgent[aid] = [];
+        byAgent[aid].push(pt);
+        agentNames[aid] = pt.agent_name || aid;
+        if (pt.timestamp < minTs) minTs = pt.timestamp;
+        if (pt.timestamp > maxTs) maxTs = pt.timestamp;
+      });
+
+      if (minTs === maxTs) {
+        minTs = maxTs - 3600;
+      }
+
+      Object.keys(byAgent).forEach(aid => {
+        const color = getAgentColor(aid);
+        const item = document.createElement("div");
+        item.className = "legend-item";
+        item.innerHTML = `<span class="legend-dot" style="background: ${color};"></span><span>${agentNames[aid]}</span>`;
+        legend.appendChild(item);
+      });
+
+      const svgWidth = 860;
+      const svgHeight = 220;
+      const padLeft = 45;
+      const padRight = 20;
+      const padTop = 20;
+      const padBottom = 30;
+      const chartW = svgWidth - padLeft - padRight;
+      const chartH = svgHeight - padTop - padBottom;
+
+      const scaleX = (ts) => padLeft + ((ts - minTs) / (maxTs - minTs)) * chartW;
+      const scaleY = (pct) => padTop + chartH - (pct / 100.0) * chartH;
+
+      let svg = `<svg viewBox="0 0 ${svgWidth} ${svgHeight}" class="chart-svg" style="width: 100%; height: auto;">`;
+
+      [0, 25, 50, 75, 100].forEach(level => {
+        const y = scaleY(level);
+        svg += `<line x1="${padLeft}" y1="${y}" x2="${svgWidth - padRight}" y2="${y}" stroke="currentColor" stroke-opacity="0.08" stroke-dasharray="3,3" />`;
+        svg += `<text x="${padLeft - 8}" y="${y + 4}" fill="currentColor" opacity="0.4" font-size="10" font-family="'JetBrains Mono', monospace" text-anchor="end">${level}%</text>`;
+      });
+
+      const startStr = new Date(minTs * 1000).toLocaleDateString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const endStr = new Date(maxTs * 1000).toLocaleDateString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      svg += `<text x="${padLeft}" y="${svgHeight - 8}" fill="currentColor" opacity="0.4" font-size="10" font-family="'JetBrains Mono', monospace">${startStr}</text>`;
+      svg += `<text x="${svgWidth - padRight}" y="${svgHeight - 8}" fill="currentColor" opacity="0.4" font-size="10" font-family="'JetBrains Mono', monospace" text-anchor="end">${endStr}</text>`;
+
+      Object.entries(byAgent).forEach(([aid, pts]) => {
+        const color = getAgentColor(aid);
+        const polyPoints = pts.map(p => `${scaleX(p.timestamp).toFixed(1)},${scaleY(p.used_percent).toFixed(1)}`).join(" ");
+
+        svg += `<polyline points="${polyPoints}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.85" />`;
+
+        pts.forEach(p => {
+          const cx = scaleX(p.timestamp).toFixed(1);
+          const cy = scaleY(p.used_percent).toFixed(1);
+          const dStr = new Date(p.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          svg += `<circle cx="${cx}" cy="${cy}" r="3" fill="${color}">
+            <title>${agentNames[aid]}: ${p.used_percent}% used at ${dStr} (${p.is_active ? 'Active' : 'Inactive'})</title>
+          </circle>`;
+        });
+      });
+
+      svg += `</svg>`;
+      container.innerHTML = svg;
+    }
+
+    function renderHourlyDistribution(hourlyActivity, peakHours = []) {
+      const container = document.getElementById("hourly-bars");
+      container.innerHTML = "";
+
+      if (!hourlyActivity) return;
+      const peakSet = new Set(peakHours || []);
+      const maxCount = Math.max(...Object.values(hourlyActivity), 1);
+
+      for (let h = 0; h < 24; h++) {
+        const count = hourlyActivity[h] || 0;
+        const isPeak = peakSet.has(h);
+        const col = document.createElement("div");
+        col.className = "hourly-bar-col";
+        col.title = `${String(h).padStart(2, '0')}:00 - ${count} events logged${isPeak ? ' (Peak Hour)' : ''}`;
+
+        const heightPct = count > 0 ? Math.max(8, Math.round((count / maxCount) * 100)) : 4;
+        const bar = document.createElement("div");
+        bar.className = `hourly-bar ${isPeak ? 'peak' : ''}`;
+        bar.style.height = `${heightPct}%`;
+        if (count === 0) bar.style.opacity = "0.2";
+
+        const label = document.createElement("div");
+        label.className = "hourly-bar-label";
+        label.innerText = h % 3 === 0 ? String(h).padStart(2, '0') : "";
+
+        col.appendChild(bar);
+        col.appendChild(label);
+        container.appendChild(col);
+      }
+    }
+
     // Initial Load & EventSource Startup
     fetchData();
     connectSSE();
+    fetchAnalytics();
     setInterval(tickTimers, 1000);
   </script>
 </body>
@@ -1273,6 +1681,33 @@ class DashboardHandler(BaseHTTPRequestHandler):
             force_refresh = "refresh=true" in self.path
             statuses = get_all_statuses()
             data = [s.to_dict() for s in statuses]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(data).encode("utf-8"))
+        elif self.path.startswith("/api/history"):
+            parsed = urlparse(self.path)
+            qs = parse_qs(parsed.query)
+            aid = qs.get("agent_id", [None])[0]
+            try:
+                hrs = int(qs.get("hours", ["168"])[0])
+            except Exception:
+                hrs = 168
+            data = get_history_points(agent_id=aid, hours=hrs)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(data).encode("utf-8"))
+        elif self.path.startswith("/api/analytics"):
+            parsed = urlparse(self.path)
+            qs = parse_qs(parsed.query)
+            try:
+                days = int(qs.get("days", ["7"])[0])
+            except Exception:
+                days = 7
+            data = get_analytics_summary(days=days)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")

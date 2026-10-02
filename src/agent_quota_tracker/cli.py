@@ -15,6 +15,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -616,6 +617,68 @@ def run_schedule_remove_cmd() -> None:
         console.print(f"[bold red]✖ {res.get('message', 'Failed to remove scheduled task.')}[/bold red]\n")
 
 
+def run_analytics_command(days: int = 7) -> None:
+    from agent_quota_tracker.history import get_analytics_summary
+
+    summary = get_analytics_summary(days=days)
+
+    console.print(
+        Panel(
+            f"[bold cyan]⚡ AI Agents Quota Velocity & Usage Analytics[/bold cyan]\n"
+            f"[dim]Analyzed over past {days} days • {summary['total_snapshots']} historical data points • {summary['total_pokes']} verified pokes[/dim]",
+            border_style="cyan",
+        )
+    )
+
+    summary_table = Table(box=box.ROUNDED, show_header=True)
+    summary_table.add_column("Metric", style="bold white", width=28)
+    summary_table.add_column("Value", style="bold cyan", width=48)
+
+    summary_table.add_row("Active Time Ratio", f"{summary['active_time_ratio']}% of tracked time")
+    summary_table.add_row("Peak Consumption Hours", f"{summary['peak_hours_str']}")
+    summary_table.add_row("Recommended Priming Time", f"[bold green]⚡ {summary['recommended_poke_time']}[/bold green]")
+    summary_table.add_row("Priming Strategy", f"[dim]{summary['recommendation_reason']}[/dim]")
+
+    console.print(summary_table)
+
+    # 24-Hour Timeline Distribution
+    hourly = summary.get("hourly_activity", {})
+    max_h = max(hourly.values()) if hourly and max(hourly.values()) > 0 else 1
+    peak_set = set(summary.get("peak_hours", []))
+
+    chart_table = Table(box=box.SIMPLE_HEAD, title="🕒 24-Hour Usage Distribution")
+    chart_table.add_column("Hour", style="bold white", width=8)
+    chart_table.add_column("Activity Distribution", width=36)
+    chart_table.add_column("Events", justify="right", width=8)
+
+    for h in range(24):
+        cnt = hourly.get(h, 0)
+        bar_len = int((cnt / max_h) * 26) if max_h > 0 else 0
+        bar_str = "█" * bar_len + "░" * (26 - bar_len)
+        style = "bold cyan" if h in peak_set else ("white" if cnt > 0 else "dim")
+        time_label = f"{h:02d}:00"
+        chart_table.add_row(time_label, f"[{style}]{bar_str}[/{style}]", str(cnt))
+
+    console.print(chart_table)
+
+    # Per-Account Peak Breakdown
+    agent_stats = summary.get("agent_stats", {})
+    if agent_stats:
+        agent_table = Table(box=box.ROUNDED, title="🤖 Per-Account Peak Breakdown")
+        agent_table.add_column("Account ID", style="bold white")
+        agent_table.add_column("Max 5h Usage", justify="right")
+        agent_table.add_column("Active Snapshots", justify="right")
+
+        for aid, s in agent_stats.items():
+            max_u = s.get("max_used_percent", 0.0)
+            act_s = s.get("active_snapshots", 0)
+            u_color = "bold red" if max_u >= 90 else ("bold yellow" if max_u >= 75 else "green")
+            agent_table.add_row(aid, f"[{u_color}]{max_u:.1f}%[/{u_color}]", str(act_s))
+        console.print(agent_table)
+    console.print()
+
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="⚡ AI Agents 5-Hour Window Tracker & Dashboard\n\nMonitor rolling rate limit windows, track weekly resets, and poke AI accounts non-interactively.",
@@ -787,10 +850,23 @@ Examples:
         help="Alias for --auto.",
     )
     parser.add_argument(
+        "--analytics",
+        "--insights",
+        action="store_true",
+        help="Display quota consumption velocity, peak hours, and optimal priming analytics.",
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=7,
+        metavar="DAYS",
+        help="Number of days to analyze for analytics (default: 7).",
+    )
+    parser.add_argument(
         "subcommand",
         nargs="?",
-        choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule", "auto"],
-        help="Optional positional subcommand alias for status, poke, dashboard, poke-watch, prompt, schedule, or auto",
+        choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule", "auto", "analytics", "insights"],
+        help="Optional positional subcommand alias for status, poke, dashboard, poke-watch, prompt, schedule, auto, or analytics",
     )
     parser.add_argument(
         "extra_args",
@@ -848,6 +924,11 @@ Examples:
         format_spec = args.prompt_format or (args.extra_args[0] if args.extra_args else None)
         output = format_prompt(preset_or_format=format_spec, refresh=args.refresh)
         print(output)
+        return
+
+    is_analytics = args.analytics or (args.subcommand in ("analytics", "insights"))
+    if is_analytics:
+        run_analytics_command(days=args.days)
         return
 
     is_status = args.status or args.subcommand == "status"

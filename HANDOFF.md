@@ -78,7 +78,7 @@ The project is structured with a **Tri-Engine Runtime**. Whenever adding new CLI
 Before pushing any commit or opening a PR, always execute the automated test suites:
 
 ```powershell
-# 1. Run Python unit tests (must pass 95/95)
+# 1. Run Python unit tests (must pass 105/105)
 uv run pytest -v
 
 # 2. Syntax check standalone script
@@ -100,13 +100,10 @@ Write-Host "All PowerShell scripts validate cleanly!"
 
 ## 📋 Active Roadmap Issues Ready for Implementation
 
-The following 1 issue is currently open on GitHub and scheduled for **v1.2.0 & Beyond**:
-
-| Issue | Title | Complexity | Suggested Approach |
-|---|---|---|---|
-| [**#23**](https://github.com/joseamair/agent-quota-tracker/issues/23) | **Local SQLite Historical Analytics & Burndown Charts** | Medium | Add SQLite database at `~/.agent_quota_tracker/history.db` logging quota events. Add `agents --analytics` and embedded SVG chart in `dashboard.html`. |
+All initial roadmap issues for **v1.2.0** have now been delivered across the Tri-Engine architecture! Future roadmap planning and issues will be curated for upcoming minor and major releases.
 
 ### Recently Delivered
+- [**#23**](https://github.com/joseamair/agent-quota-tracker/issues/23) - **Local SQLite Historical Analytics & Burndown Charts**: Embedded SQLite timeseries database under `~/.agent_quota_tracker/history.db` storing quota snapshots and poke records with 60s deduplication. Added `agents --analytics`, `--insights`, and `agents analytics [--days N]` displaying active time ratio, top 3 peak hours, optimal morning priming recommendation, and 24-hour diurnal distribution. Embedded interactive SVG 7-day velocity burn-down chart, 24-hour activity bars, and period selector (24h, 3d, 7d, 14d) in Web Dashboard with `/api/history` and `/api/analytics` endpoints. Full Tri-Engine Parity.
 - [**#21**](https://github.com/joseamair/agent-quota-tracker/issues/21) - **Additional Agent Trackers (Cursor, Windsurf, Copilot, Aider - Beta)**: Modular implementations for Cursor (SQLite token discovery + `api2.cursor.sh`), Windsurf (`~/.codeium/config.json` + `api.codeium.com`), GitHub Copilot (`gh auth token` + Copilot token API), and Aider (`OPENROUTER_API_KEY` + OpenRouter balance API). Open call for community validation. Full Tri-Engine Parity.
 - [**#24**](https://github.com/joseamair/agent-quota-tracker/issues/24) - **Web Dashboard v2 (Live Push & Interactive Controls)**: Real-time Server-Sent Events (SSE) `/api/stream` streaming, per-card "⚡ Poke" / "⚡ Force Poke" buttons, interactive morning priming configuration modal (`/api/schedule`), 3 switchable themes (Dark, Cyberpunk OLED, Light), and live ticking JS countdowns. Full Tri-Engine Parity.
 - [**#31**](https://github.com/joseamair/agent-quota-tracker/issues/31) - **Autonomous Continuous Auto-Checker Loop (`agents auto`, `--auto-poke`)**: Continuous autonomous monitoring and priming task that loops endlessly, priming idle accounts, computing the earliest reset time, and running a live single-line ticking countdown until next priming.

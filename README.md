@@ -417,6 +417,30 @@ Continuously refreshes the quota status table in your terminal every N seconds (
 
 ---
 
+### 10. `agents --analytics` / `--insights` / `agents analytics` (Quota Velocity & Historical Burn-Down)
+Analyzes historical usage patterns and quota velocity logged to the embedded SQLite database (`~/.agent_quota_tracker/history.db`):
+- **Active Time Ratio**: Percentage of tracked time with active 5-hour quota windows.
+- **Peak Consumption Hours**: Top 3 diurnal hours of highest prompt activity throughout the day.
+- **Recommended Morning Priming Time**: Mathematically derived priming schedule (e.g. 07:30) calculated from your first morning usage spike to ensure your 5-hour window resets directly at midday without midday lockouts.
+- **24-Hour Diurnal Distribution**: Terminal bar chart visualizing activity intensity across all 24 hours of the day.
+- **Per-Account Peak Breakdown**: Tracks max 5-hour utilization percentage and total active session counts per agent.
+
+```powershell
+# Analyze past 7 days (default):
+.\agents.ps1 --analytics
+
+# Analyze past 14 or 30 days:
+.\agents.ps1 --analytics --days 14
+
+# With positional alias:
+uv run agents analytics
+
+# With native PowerShell:
+.\agents_native.ps1 -Analytics -Days 7
+```
+
+---
+
 ## ⚙️ Account Configuration
 
 Tracked accounts and display order are configured in `agents.config.json` (or `~/.agents_dashboard/config.json`). By default, personal accounts are grouped at the top, followed by work accounts:

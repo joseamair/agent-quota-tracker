@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 from datetime import datetime, timezone, timedelta
@@ -16,9 +17,11 @@ from agent_quota_tracker.history import (
     get_history_points,
     get_analytics_summary,
     set_custom_db_path,
+    normalize_agent_identity,
+    backfill_history,
 )
 from agent_quota_tracker.models import AgentStatus
-from agent_quota_tracker.cli import run_analytics_command
+from agent_quota_tracker.cli import run_analytics_command, run_backfill_cmd
 
 
 @pytest.fixture
@@ -254,3 +257,91 @@ def test_run_analytics_command(temp_db: Path, capsys):
     assert "AI Agents Quota Velocity & Usage Analytics" in captured.out
     assert "24-Hour Usage Distribution" in captured.out
     assert "Per-Account Peak Breakdown" in captured.out
+
+
+def test_normalize_agent_identity():
+    aid, aname, prov = normalize_agent_identity("Google Antigravity (AGY)")
+    assert aid == "agy"
+    assert "Antigravity" in aname
+    assert prov == "Google Antigravity"
+
+    aid, aname, prov = normalize_agent_identity("OpenAI Codex")
+    assert aid == "codex"
+    assert prov == "OpenAI Codex"
+
+    aid, aname, prov = normalize_agent_identity("Claude (Work2)")
+    assert aid == "claude-work2"
+    assert prov == "Anthropic Claude"
+
+    aid, aname, prov = normalize_agent_identity("Cursor Composer")
+    assert aid == "cursor"
+    assert prov == "Cursor"
+
+
+def test_backfill_history_from_legacy_files(temp_db: Path, tmp_path: Path):
+    # 1. Create mock schedule.log
+    log_file = tmp_path / "schedule.log"
+    log_content = (
+        "[2026-09-28 08:42:29] Poke executed: 3 primed (OpenAI Codex, Claude (Work), Claude (Work2)), 1 skipped, 0 failed\n"
+        "[2026-09-29 11:34:32] Poke executed: 2 primed (Google Antigravity (AGY), Claude (Personal)), 3 skipped, 0 failed\n"
+        "[2026-09-30 10:26:09] Poke executed: 0 primed (none), 5 skipped, 0 failed\n"
+    )
+    log_file.write_text(log_content, encoding="utf-8")
+
+    # 2. Create mock state.json
+    state_file = tmp_path / "state.json"
+    state_content = {
+        "claude-work": {"last_poked_at": "2026-10-01T07:15:00+00:00"},
+        "agy": {"last_poked_at": "2026-10-01T07:20:00+00:00"},
+    }
+    state_file.write_text(json.dumps(state_content), encoding="utf-8")
+
+    # Run backfill
+    res = backfill_history(log_path=log_file, state_path=state_file, db_path=temp_db)
+    assert res["success"] is True
+    # 3 from first line + 2 from second line + 2 from state.json = 7 pokes
+    assert res["pokes_imported"] == 7
+    assert res["snapshots_imported"] == 7
+    assert len(res["sources"]) == 2
+
+    # Verify database contents
+    conn = get_connection(temp_db)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM pokes")
+        assert cur.fetchone()[0] == 7
+        cur.execute("SELECT COUNT(*) FROM snapshots")
+        assert cur.fetchone()[0] == 7
+    finally:
+        conn.close()
+
+    # Check analytics summary reflects imported data
+    summary = get_analytics_summary(days=7, db_path=temp_db)
+    assert summary["total_pokes"] == 7
+    assert summary["total_snapshots"] == 7
+    assert 8 in summary["hourly_activity"] or 11 in summary["hourly_activity"]
+
+
+def test_backfill_history_idempotent(temp_db: Path, tmp_path: Path):
+    log_file = tmp_path / "schedule.log"
+    log_file.write_text("[2026-09-28 08:42:29] Poke executed: 1 primed (OpenAI Codex), 4 skipped, 0 failed\n")
+
+    # First run
+    res1 = backfill_history(log_path=log_file, state_path=tmp_path / "nonexistent.json", db_path=temp_db)
+    assert res1["pokes_imported"] == 1
+
+    # Second run with same file
+    res2 = backfill_history(log_path=log_file, state_path=tmp_path / "nonexistent.json", db_path=temp_db)
+    assert res2["pokes_imported"] == 0
+    assert res2["snapshots_imported"] == 0
+
+
+def test_run_backfill_cmd(temp_db: Path, tmp_path: Path, capsys):
+    log_file = tmp_path / "schedule.log"
+    log_file.write_text("[2026-09-28 08:42:29] Poke executed: 1 primed (OpenAI Codex), 4 skipped, 0 failed\n")
+
+    with patch("agent_quota_tracker.history.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
+            with patch("agent_quota_tracker.cli.run_backfill_cmd") as mock_backfill:
+                mock_backfill()
+                assert mock_backfill.called

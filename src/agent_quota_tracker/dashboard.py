@@ -978,6 +978,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <button class="period-btn" onclick="changeAnalyticsPeriod(3, this)">3 Days</button>
           <button class="period-btn active" onclick="changeAnalyticsPeriod(7, this)">7 Days</button>
           <button class="period-btn" onclick="changeAnalyticsPeriod(14, this)">14 Days</button>
+          <button class="period-btn" onclick="triggerBackfill(this)" title="Import past morning priming and poke events from legacy logs">📥 Backfill</button>
         </div>
       </div>
 
@@ -1523,6 +1524,27 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       fetchAnalytics(days);
     }
 
+    async function triggerBackfill(btn) {
+      const orig = btn.innerText;
+      btn.disabled = true;
+      btn.innerText = "⏳ Importing...";
+      try {
+        const res = await fetch("/api/backfill", { method: "POST" });
+        const data = await res.json();
+        if (data.success) {
+          btn.innerText = `✔ +${data.pokes_imported} pokes`;
+          setTimeout(() => { btn.innerText = orig; btn.disabled = false; }, 3000);
+          fetchAnalytics(currentAnalyticsDays);
+        } else {
+          btn.innerText = "✖ Failed";
+          setTimeout(() => { btn.innerText = orig; btn.disabled = false; }, 3000);
+        }
+      } catch (e) {
+        btn.innerText = "✖ Error";
+        setTimeout(() => { btn.innerText = orig; btn.disabled = false; }, 3000);
+      }
+    }
+
     function renderAnalyticsSummary(data) {
       document.getElementById("ana-active-ratio").innerText = `${data.active_time_ratio}%`;
       document.getElementById("ana-peak-hours").innerText = data.peak_hours_str || "No activity yet";
@@ -1720,6 +1742,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps(data).encode("utf-8"))
+        elif self.path.startswith("/api/backfill"):
+            from agent_quota_tracker.history import backfill_history
+
+            res = backfill_history()
+            _update_event.set()
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
         elif self.path == "/api/stream":
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -1779,6 +1812,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
             else:
                 res = get_schedule_status()
 
+            _update_event.set()
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+
+        elif self.path == "/api/backfill":
+            from agent_quota_tracker.history import backfill_history
+
+            res = backfill_history()
             _update_event.set()
 
             self.send_response(200)

@@ -45,6 +45,7 @@ Changelog = "https://github.com/joseamair/agent-quota-tracker/blob/main/CHANGELO
 
 [project.scripts]
 agents = "agent_quota_tracker.cli:main"
+agent = "agent_quota_tracker.cli:main"
 agent-quota-tracker = "agent_quota_tracker.cli:main"
 agents-dashboard = "agent_quota_tracker.cli:main"
 

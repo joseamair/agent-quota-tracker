@@ -809,7 +809,7 @@ function Start-Countdown($totalSecs, $prefix) {
         if ($s -gt 0 -or $durParts.Count -eq 0) { $durParts += "${s}s" }
         $durStr = $durParts -join " "
 
-        $line = "⏳ $prefix: $durStr remaining"
+        $line = "⏳ $($prefix): $durStr remaining"
         if ($line.Length -gt $maxLen) {
             $line = $line.Substring(0, $maxLen - 3) + "..."
         }

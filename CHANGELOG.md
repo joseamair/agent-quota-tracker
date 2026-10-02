@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prevents premature, wasteful poke invocations on accounts approaching their natural reset window.
 
 ### Added
+- **Web Dashboard v2 with Real-Time SSE Push Updates & Interactive Controls** ([#24](https://github.com/joseamair/agent-quota-tracker/issues/24)):
+  - **Server-Sent Events (SSE)**: Added `/api/stream` streaming endpoint delivering instant, push-based quota updates to connected browser clients without periodic polling overhead, featuring zero-latency trigger events upon actions and auto-reconnection with polling fallback.
+  - **Live Streaming Indicator**: Header badge displaying live connection status (`🟢 Live SSE Stream` or `🟡 Polling Fallback`).
+  - **Interactive Priming Controls**: Added per-card "⚡ Poke" and "⚡ Force Poke" action buttons with in-flight loading spinners, plus a global "⚡ Poke All Idle" action in the header.
+  - **Morning Priming Modal**: Interactive glassmorphic modal for inspecting, installing, and removing OS-level background morning priming schedules directly from the browser (`GET /api/schedule`, `POST /api/schedule`).
+  - **Multi-Theme Engine**: Added 3 switchable design themes—Glassmorphism Dark (default), Cyberpunk OLED, and Minimal Light—with instantaneous header toggling and persistent browser `localStorage`.
+  - **Live Client-Side Timers**: Independent second-by-second countdown timers on each active card updating dynamically between server pushes.
+  - Full Tri-Engine Parity across modular Python package (`src/agent_quota_tracker/dashboard.py`), standalone runner (`agents.py`), and native PowerShell (`agents_native.ps1 -Dashboard`).
+
 - **Autonomous Continuous Quota Auto-Checker Loop (`agents auto`, `--auto`, `--auto-poke`)** ([#31](https://github.com/joseamair/agent-quota-tracker/issues/31)):
   - Continuous autonomous monitoring and priming task that:
     1. Displays the live quota status table (`agents --status`).

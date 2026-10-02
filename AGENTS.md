@@ -165,10 +165,20 @@ To automate this strategy without manual terminal loops, the following features 
   - Clean `Ctrl+C` interrupt handling with zero orphaned processes.
   - Zero third-party dependencies; full Tri-Engine Parity across modular Python package (`run_auto_checker_loop`), standalone `agents.py`, and pure native PowerShell (`agents_native.ps1 -Auto`).
 
+### Feature 7: Web Dashboard v2 with Real-Time SSE & Interactive Controls [DELIVERED - v1.2.0]
+- **Tracking Issue**: [#24](https://github.com/joseamair/agent-quota-tracker/issues/24)
+- **Command**: `agents --dashboard`, `agents -d`
+- **Architecture**:
+  - Real-time Server-Sent Events (SSE) push updates via `/api/stream` with zero-latency instant updates upon actions and graceful polling fallback.
+  - Interactive UI controls: per-card "⚡ Poke" and "⚡ Force Poke" buttons with loading state feedback, plus header "⚡ Poke All Idle".
+  - Morning Priming Configuration Modal: Glassmorphic interactive modal to inspect, configure, install, and remove OS-level daily morning priming background tasks (`/api/schedule`).
+  - Multi-theme engine: Switch seamlessly between Glassmorphism Dark (default), Cyberpunk OLED, and Minimal Light with `localStorage` persistence.
+  - Client-side ticking countdown timers on each active card.
+  - Full Tri-Engine Parity across modular Python package (`src/agent_quota_tracker/dashboard.py`), standalone runner (`agents.py`), and pure native PowerShell (`agents_native.ps1 -Dashboard`).
+
 ### Next Phase Capabilities (v1.2.0 & Beyond)
 - **Additional Agent Trackers** ([#21](https://github.com/joseamair/agent-quota-tracker/issues/21)): Cursor Composer, Windsurf/Cascade, GitHub Copilot CLI, and Aider/OpenRouter.
 - **Historical Timeseries & Velocity Analytics** ([#23](https://github.com/joseamair/agent-quota-tracker/issues/23)): Local SQLite database (`history.db`) tracking burn rates and 7-day burndown charts.
-- **Web Dashboard v2** ([#24](https://github.com/joseamair/agent-quota-tracker/issues/24)): Server-Sent Events (SSE) live push updates, per-card controls, and OLED/Dark/Light themes.
 
 ---
 

@@ -285,7 +285,7 @@ All executions and outcomes are persisted in `~/.agent_quota_tracker/schedule.lo
 
 ---
 
-### 7. `agents --dashboard` (`-d`)
+### 7. `agents --dashboard` (`-d`) (Web Dashboard v2)
 Spins up the local web dashboard at `http://localhost:5050` and automatically opens it in your default browser.
 
 ```powershell
@@ -293,6 +293,13 @@ Spins up the local web dashboard at `http://localhost:5050` and automatically op
 # Or with native PowerShell:
 .\agents_native.ps1 -Dashboard
 ```
+
+**Web Dashboard v2 Highlights:**
+- ⚡ **Real-Time Push Updates (SSE)**: Streams live quota status through Server-Sent Events (`/api/stream`) with zero-latency push when actions occur, accompanied by a live connection status badge (`🟢 Live SSE Stream` / `🟡 Polling Fallback`).
+- 🔘 **Interactive Priming Controls**: Trigger individual agent pokes (`⚡ Poke` or `⚡ Force Poke`) directly from their cards with in-flight loading spinners, or prime all dormant accounts at once via `⚡ Poke All Idle`.
+- ⏰ **Morning Priming Modal**: Inspect, install, and remove OS-level background scheduled tasks (`GET /api/schedule`, `POST /api/schedule`) directly in an interactive glassmorphic modal.
+- 🎨 **Multi-Theme Engine**: Switch between **Glassmorphism Dark** (default), **Cyberpunk OLED**, and **Minimal Light** themes with instant CSS switching and `localStorage` persistence.
+- ⏱️ **Live Client-Side Timers**: Independent ticking countdown timers on each active card updating second-by-second without waiting for full server polls.
 
 > **💡 Quick 1-Click Desktop Launcher**:  
 > Double-click `start-dashboard.cmd` directly from Windows Explorer or your desktop to start the dashboard server and open your browser instantly!

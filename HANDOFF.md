@@ -78,7 +78,7 @@ The project is structured with a **Tri-Engine Runtime**. Whenever adding new CLI
 Before pushing any commit or opening a PR, always execute the automated test suites:
 
 ```powershell
-# 1. Run Python unit tests (must pass 38/38)
+# 1. Run Python unit tests (must pass 82/82)
 uv run pytest -v
 
 # 2. Syntax check standalone script
@@ -100,15 +100,17 @@ Write-Host "All PowerShell scripts validate cleanly!"
 
 ## 📋 Active Roadmap Issues Ready for Implementation
 
-The following 3 issues are currently open on GitHub and scheduled for **v1.2.0 & Beyond**:
+The following 2 issues are currently open on GitHub and scheduled for **v1.2.0 & Beyond**:
 
 | Issue | Title | Complexity | Suggested Approach |
 |---|---|---|---|
 | [**#21**](https://github.com/joseamair/agent-quota-tracker/issues/21) | **Additional Agent Trackers (Cursor, Windsurf, Copilot, Aider)** | Medium | Add tracker classes under `src/agent_quota_tracker/trackers/` implementing `AgentTracker`. Extract fast requests from Cursor SQLite/tokens and Windsurf config. |
 | [**#23**](https://github.com/joseamair/agent-quota-tracker/issues/23) | **Local SQLite Historical Analytics & Burndown Charts** | Medium | Add SQLite database at `~/.agent_quota_tracker/history.db` logging quota events. Add `agents --analytics` and embedded SVG chart in `dashboard.html`. |
-| [**#24**](https://github.com/joseamair/agent-quota-tracker/issues/24) | **Web Dashboard v2 (Live Push & Interactive Controls)** | Medium | Add Server-Sent Events (SSE) route `/api/stream` to `server.py`. Add per-card poke buttons and theme switcher (Dark, Cyberpunk OLED, Light) to `dashboard.html`. |
 
 ### Recently Delivered
+- [**#24**](https://github.com/joseamair/agent-quota-tracker/issues/24) - **Web Dashboard v2 (Live Push & Interactive Controls)**: Real-time Server-Sent Events (SSE) `/api/stream` streaming, per-card "⚡ Poke" / "⚡ Force Poke" buttons, interactive morning priming configuration modal (`/api/schedule`), 3 switchable themes (Dark, Cyberpunk OLED, Light), and live ticking JS countdowns. Full Tri-Engine Parity.
+- [**#31**](https://github.com/joseamair/agent-quota-tracker/issues/31) - **Autonomous Continuous Auto-Checker Loop (`agents auto`, `--auto-poke`)**: Continuous autonomous monitoring and priming task that loops endlessly, priming idle accounts, computing the earliest reset time, and running a live single-line ticking countdown until next priming.
+- [**#29**](https://github.com/joseamair/agent-quota-tracker/issues/29) - **Accurate 5-Hour Idle Threshold (Sliding Window Ceiling Fix) & Weekly Quota Guard**: Fixed false-inactive bug on 0% accounts with remaining window time, dynamic red/yellow weekly alerts, and poke guard skipping accounts with $\ge 100\%$ weekly usage.
 - [**#22**](https://github.com/joseamair/agent-quota-tracker/issues/22) - **OS-Level Scheduled Priming Task Generator (`--schedule-install`, `--schedule-status`, `--schedule-remove`)**: Unattended morning priming background tasks for Windows Task Scheduler, Linux crontab, and macOS launchd. Full Tri-Engine Parity.
 - [**#25**](https://github.com/joseamair/agent-quota-tracker/issues/25) - **Shell Prompt & Status Bar Integration (`--prompt`, `--prompt-format`)**: Ultra-fast (<15ms) cached status segments for Starship, Oh-My-Posh, tmux, and PowerShell `$PROFILE` with dynamic mathematical countdown engine and full Tri-Engine Parity.
 - [**#20**](https://github.com/joseamair/agent-quota-tracker/issues/20) - **Native Desktop Toast Notifications (`--notify`, `--test-notify`)**: Merged in PR #26. Zero third-party dependencies, cross-platform (Windows, macOS, Linux), full Tri-Engine Parity.

@@ -4226,6 +4226,12 @@ class SimpleDashboardHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         pass
 
+    def handle(self) -> None:
+        try:
+            super().handle()
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
+            pass
+
     def do_GET(self) -> None:
         if self.path in ("/", "/index.html"):
             self.send_response(200)
@@ -4385,11 +4391,23 @@ class SimpleDashboardHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
 
+class QuietThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer that suppresses noisy browser connection resets and socket aborts."""
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        exc_type, exc_val, _ = sys.exc_info()
+        if exc_type is not None and issubclass(
+            exc_type, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError)
+        ):
+            return
+        super().handle_error(request, client_address)
+
+
 def start_dashboard(port: int = 5050) -> None:
     global _dash_server_running
     _dash_server_running = True
 
-    server = ThreadingHTTPServer(("127.0.0.1", port), SimpleDashboardHandler)
+    server = QuietThreadingHTTPServer(("127.0.0.1", port), SimpleDashboardHandler)
     url = f"http://localhost:{port}"
     print(f"\n🚀 Dashboard web server v2 running at {url}")
     print("Press Ctrl+C to stop.\n")

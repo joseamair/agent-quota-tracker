@@ -31,6 +31,7 @@ from datetime import datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import parse_qs, urlparse
 
 # Ensure UTF-8 output on Windows console
 if sys.platform == "win32":
@@ -124,6 +125,363 @@ def load_cache() -> Optional[dict[str, Any]]:
     except Exception:
         return None
     return None
+
+
+_history_custom_db_path: Optional[Path] = None
+
+
+def set_history_custom_db_path(path: Optional[Path]) -> None:
+    global _history_custom_db_path
+    _history_custom_db_path = path
+
+
+def get_history_db_path(db_path: Optional[Path] = None) -> Path:
+    if db_path is not None:
+        return db_path
+    if _history_custom_db_path is not None:
+        return _history_custom_db_path
+    d = Path(os.path.expanduser("~")) / ".agent_quota_tracker"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / "history.db"
+
+
+def get_history_connection(db_path: Optional[Path] = None) -> sqlite3.Connection:
+    target = get_history_db_path(db_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(target), timeout=5.0)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_history_db(db_path: Optional[Path] = None) -> None:
+    conn = get_history_connection(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL NOT NULL,
+                timestamp_iso TEXT NOT NULL,
+                agent_id TEXT NOT NULL,
+                agent_name TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                is_active INTEGER NOT NULL,
+                used_percent REAL NOT NULL,
+                weekly_used_percent REAL,
+                time_remaining_seconds INTEGER DEFAULT 0
+            );
+            """
+        )
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_agent_ts ON snapshots (agent_id, timestamp);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON snapshots (timestamp);")
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pokes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL NOT NULL,
+                timestamp_iso TEXT NOT NULL,
+                agent_id TEXT NOT NULL,
+                agent_name TEXT NOT NULL,
+                action TEXT NOT NULL,
+                message TEXT
+            );
+            """
+        )
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_pokes_agent_ts ON pokes (agent_id, timestamp);")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def record_snapshots(statuses: list[Any], db_path: Optional[Path] = None) -> None:
+    if not statuses:
+        return
+    init_history_db(db_path)
+    now_ts = time.time()
+    now_iso = datetime.now(timezone.utc).astimezone().isoformat()
+
+    conn = get_history_connection(db_path)
+    try:
+        cur = conn.cursor()
+        for s in statuses:
+            if isinstance(s, dict):
+                aid = s.get("id") or s.get("agent_id")
+                name = s.get("name") or s.get("display_name") or aid
+                prov = s.get("provider") or "unknown"
+                is_active = bool(s.get("is_active", False))
+                used_pct = float(s.get("used_percent", 0.0))
+                wk_pct = s.get("weekly_used_percent")
+                wk_pct = float(wk_pct) if wk_pct is not None else None
+                rem_secs = int(s.get("time_remaining_seconds", 0))
+            else:
+                aid = getattr(s, "id", None) or getattr(s, "agent_id", None)
+                name = getattr(s, "name", None) or getattr(s, "display_name", None) or aid
+                prov = getattr(s, "provider", "unknown")
+                is_active = bool(getattr(s, "is_active", False))
+                used_pct = float(getattr(s, "used_percent", 0.0))
+                wk_pct = getattr(s, "weekly_used_percent", None)
+                wk_pct = float(wk_pct) if wk_pct is not None else None
+                rem_secs = int(getattr(s, "time_remaining_seconds", 0))
+
+            if not aid:
+                continue
+
+            cur.execute(
+                """
+                SELECT timestamp, used_percent, is_active, weekly_used_percent
+                FROM snapshots
+                WHERE agent_id = ?
+                ORDER BY timestamp DESC LIMIT 1
+                """,
+                (aid,),
+            )
+            last = cur.fetchone()
+            if last:
+                last_ts = float(last["timestamp"])
+                last_used = float(last["used_percent"])
+                last_act = bool(last["is_active"])
+                last_wk = float(last["weekly_used_percent"]) if last["weekly_used_percent"] is not None else None
+                if (now_ts - last_ts < 60) and (last_used == used_pct) and (last_act == is_active) and (last_wk == wk_pct):
+                    continue
+
+            cur.execute(
+                """
+                INSERT INTO snapshots (
+                    timestamp, timestamp_iso, agent_id, agent_name, provider,
+                    is_active, used_percent, weekly_used_percent, time_remaining_seconds
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (now_ts, now_iso, aid, name, prov, 1 if is_active else 0, used_pct, wk_pct, rem_secs),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def record_poke(
+    agent_id: str,
+    agent_name: str,
+    action: str,
+    message: str = "",
+    db_path: Optional[Path] = None,
+) -> None:
+    init_history_db(db_path)
+    now_ts = time.time()
+    now_iso = datetime.now(timezone.utc).astimezone().isoformat()
+
+    conn = get_history_connection(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO pokes (timestamp, timestamp_iso, agent_id, agent_name, action, message)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (now_ts, now_iso, agent_id, agent_name, action, message),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_history_points(
+    agent_id: Optional[str] = None,
+    hours: int = 168,
+    db_path: Optional[Path] = None,
+) -> list[dict[str, Any]]:
+    init_history_db(db_path)
+    cutoff = time.time() - (hours * 3600)
+    conn = get_history_connection(db_path)
+    try:
+        cur = conn.cursor()
+        if agent_id:
+            cur.execute(
+                """
+                SELECT timestamp, timestamp_iso, agent_id, agent_name, provider,
+                       is_active, used_percent, weekly_used_percent, time_remaining_seconds
+                FROM snapshots
+                WHERE timestamp >= ? AND (agent_id = ? OR agent_id = ?)
+                ORDER BY timestamp ASC
+                """,
+                (cutoff, agent_id, f"claude-{agent_id}"),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT timestamp, timestamp_iso, agent_id, agent_name, provider,
+                       is_active, used_percent, weekly_used_percent, time_remaining_seconds
+                FROM snapshots
+                WHERE timestamp >= ?
+                ORDER BY timestamp ASC
+                """,
+                (cutoff,),
+            )
+        rows = cur.fetchall()
+        return [
+            {
+                "timestamp": r["timestamp"],
+                "timestamp_iso": r["timestamp_iso"],
+                "agent_id": r["agent_id"],
+                "agent_name": r["agent_name"],
+                "provider": r["provider"],
+                "is_active": bool(r["is_active"]),
+                "used_percent": float(r["used_percent"]),
+                "weekly_used_percent": float(r["weekly_used_percent"]) if r["weekly_used_percent"] is not None else None,
+                "time_remaining_seconds": int(r["time_remaining_seconds"]),
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+def get_analytics_summary(
+    days: int = 7,
+    db_path: Optional[Path] = None,
+) -> dict[str, Any]:
+    init_history_db(db_path)
+    cutoff = time.time() - (days * 86400)
+    conn = get_history_connection(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT timestamp, timestamp_iso, agent_id, agent_name, provider,
+                   is_active, used_percent, weekly_used_percent
+            FROM snapshots
+            WHERE timestamp >= ?
+            ORDER BY timestamp ASC
+            """,
+            (cutoff,),
+        )
+        rows = cur.fetchall()
+
+        cur.execute("SELECT COUNT(*) as cnt FROM pokes WHERE timestamp >= ?", (cutoff,))
+        poke_cnt = cur.fetchone()["cnt"]
+
+        total_snaps = len(rows)
+        if total_snaps == 0:
+            return {
+                "total_snapshots": 0,
+                "total_pokes": poke_cnt,
+                "days_analyzed": days,
+                "active_time_ratio": 0.0,
+                "hourly_activity": {h: 0 for h in range(24)},
+                "peak_hours": [],
+                "peak_hours_str": "No activity recorded yet",
+                "recommended_poke_time": "07:30",
+                "recommendation_reason": "Default recommended morning priming time (no historical data yet)",
+                "agent_stats": {},
+            }
+
+        hourly_counts: dict[int, int] = {h: 0 for h in range(24)}
+        agent_max_used: dict[str, float] = {}
+        agent_active_count: dict[str, int] = {}
+        active_snapshots = 0
+
+        for r in rows:
+            dt = datetime.fromtimestamp(r["timestamp"], tz=timezone.utc).astimezone()
+            hour = dt.hour
+            is_act = bool(r["is_active"])
+            used = float(r["used_percent"])
+            aid = r["agent_id"]
+
+            if is_act or used > 0:
+                hourly_counts[hour] += 1
+                active_snapshots += 1
+
+            agent_max_used[aid] = max(agent_max_used.get(aid, 0.0), used)
+            if is_act:
+                agent_active_count[aid] = agent_active_count.get(aid, 0) + 1
+
+        active_ratio = round((active_snapshots / total_snaps) * 100.0, 1) if total_snaps > 0 else 0.0
+
+        sorted_hours = sorted(hourly_counts.items(), key=lambda kv: kv[1], reverse=True)
+        peak_hours = [h for h, count in sorted_hours[:3] if count > 0]
+
+        if peak_hours:
+            peak_hours_formatted = [f"{h:02d}:00" for h in sorted(peak_hours)]
+            peak_str = ", ".join(peak_hours_formatted)
+        else:
+            peak_str = "Evenly distributed / Idle"
+
+        morning_hours = [h for h in range(6, 12) if hourly_counts.get(h, 0) > 0]
+        if morning_hours:
+            first_morning_hour = min(morning_hours)
+            rec_target_mins = max(360, (first_morning_hour * 60) - 90)
+            rec_h, rec_m = divmod(rec_target_mins, 60)
+            rec_poke_time = f"{rec_h:02d}:{rec_m:02d}"
+            rec_reason = f"Derived from historical first activity spike at {first_morning_hour:02d}:00 (priming 90m before aligns 5h reset at midday)"
+        else:
+            rec_poke_time = "07:30"
+            rec_reason = "Standard strategic priming time (optimal for 09:00 AM work starts)"
+
+        agent_stats = {
+            aid: {
+                "max_used_percent": agent_max_used.get(aid, 0.0),
+                "active_snapshots": agent_active_count.get(aid, 0),
+            }
+            for aid in agent_max_used
+        }
+
+        return {
+            "total_snapshots": total_snaps,
+            "total_pokes": poke_cnt,
+            "days_analyzed": days,
+            "active_time_ratio": active_ratio,
+            "hourly_activity": hourly_counts,
+            "peak_hours": peak_hours,
+            "peak_hours_str": peak_str,
+            "recommended_poke_time": rec_poke_time,
+            "recommendation_reason": rec_reason,
+            "agent_stats": agent_stats,
+        }
+    finally:
+        conn.close()
+
+
+def run_analytics_command(days: int = 7) -> None:
+    summary = get_analytics_summary(days=days)
+
+    bar_len = 80
+    print("\n" + "=" * bar_len)
+    print(f"  ⚡ AI AGENTS QUOTA VELOCITY & USAGE ANALYTICS")
+    print(f"  Analyzed over past {days} days • {summary['total_snapshots']} historical data points • {summary['total_pokes']} verified pokes")
+    print("=" * bar_len)
+    print(f"  Active Time Ratio:        {summary['active_time_ratio']}% of tracked time")
+    print(f"  Peak Consumption Hours:   {summary['peak_hours_str']}")
+    print(f"  Recommended Priming Time: ⚡ {summary['recommended_poke_time']}")
+    print(f"  Priming Strategy:         {summary['recommendation_reason']}")
+    print("-" * bar_len)
+
+    print("\n  🕒 24-Hour Usage Distribution")
+    print(f"  {'Hour':<8} {'Activity Distribution':<36} {'Events':>8}")
+    print("  " + "-" * 54)
+
+    hourly = summary.get("hourly_activity", {})
+    max_h = max(hourly.values()) if hourly and max(hourly.values()) > 0 else 1
+    peak_set = set(summary.get("peak_hours", []))
+
+    for h in range(24):
+        cnt = hourly.get(h, 0)
+        bar_len_val = int((cnt / max_h) * 26) if max_h > 0 else 0
+        bar_str = "█" * bar_len_val + "░" * (26 - bar_len_val)
+        marker = " ⚡" if h in peak_set else ""
+        print(f"  {h:02d}:00    {bar_str}{marker:<3} {cnt:>6}")
+
+    agent_stats = summary.get("agent_stats", {})
+    if agent_stats:
+        print("\n  🤖 Per-Account Peak Breakdown")
+        print(f"  {'Account ID':<18} {'Max 5h Usage':>14} {'Active Snapshots':>18}")
+        print("  " + "-" * 52)
+        for aid, s in agent_stats.items():
+            max_u = s.get("max_used_percent", 0.0)
+            act_s = s.get("active_snapshots", 0)
+            print(f"  {aid:<18} {max_u:>13.1f}% {act_s:>18}")
+
+    print("\n" + "=" * bar_len + "\n")
 
 
 def format_duration_short(seconds: int) -> str:
@@ -1512,6 +1870,7 @@ def fetch_all_statuses() -> list[AgentInfo]:
             statuses.append(get_aider_status(name, category=cat, api_key=key, agent_id=aid, provider=prov))
     try:
         save_cache(statuses)
+        record_snapshots(statuses)
     except Exception:
         pass
     return statuses
@@ -1588,11 +1947,19 @@ def run_poke_command(force: bool = False, agent_id: Optional[str] = None, notify
     for s in statuses:
         if s.is_active and not force:
             print(f"  ↷ SKIPPED: {s.name:<25} Window already ACTIVE ({s.time_remaining_str} remaining, {s.used_percent}% used).")
+            try:
+                record_poke(s.id, s.name, "skipped", f"5h window already active ({s.time_remaining_str} remaining, {s.used_percent}% used)")
+            except Exception:
+                pass
             continue
 
         if not force and s.weekly_used_percent is not None and s.weekly_used_percent >= 100.0:
             reset_msg = f", resets in {s.weekly_remaining_hours:.1f}h" if s.weekly_remaining_hours else ""
             print(f"  ↷ SKIPPED: {s.name:<25} Weekly quota exhausted ({s.weekly_used_percent:.1f}% used{reset_msg}). Use --force to override.")
+            try:
+                record_poke(s.id, s.name, "skipped", f"Weekly quota exhausted ({s.weekly_used_percent:.1f}% used{reset_msg})")
+            except Exception:
+                pass
             continue
 
         action_desc = "Forcing poke" if (s.is_active and force) else "Window is inactive"
@@ -1617,6 +1984,10 @@ def run_poke_command(force: bool = False, agent_id: Optional[str] = None, notify
 
         res["agent_name"] = s.name
         poked_results.append(res)
+        try:
+            record_poke(s.id, s.name, res.get("status", "poked"), res.get("message", ""))
+        except Exception:
+            pass
         if res["status"] == "poked":
             print(f"  ✔ SUCCESS: {s.name:<25} {res['message']}")
             if res.get("reply"):
@@ -2692,6 +3063,180 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       transform: translateY(0);
       pointer-events: auto;
     }
+
+    /* Analytics Section */
+    .analytics-section {
+      margin-top: 2.25rem;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      padding: 1.75rem;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+    }
+
+    .analytics-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .analytics-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .period-selector {
+      display: flex;
+      gap: 0.4rem;
+      background: var(--box-bg);
+      padding: 0.25rem;
+      border-radius: 10px;
+      border: 1px solid var(--card-border);
+    }
+
+    .period-btn {
+      padding: 0.35rem 0.75rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-muted);
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .period-btn:hover {
+      color: var(--text-main);
+    }
+
+    .period-btn.active {
+      background: var(--cyan);
+      color: #000;
+      font-weight: 700;
+    }
+
+    .analytics-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .analytics-metric-card {
+      background: var(--box-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 1rem 1.2rem;
+    }
+
+    .analytics-metric-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.35rem;
+    }
+
+    .analytics-metric-value {
+      font-size: 1.35rem;
+      font-weight: 800;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .analytics-metric-sub {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 0.35rem;
+    }
+
+    .chart-box {
+      background: var(--box-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .chart-box-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .chart-box-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+    }
+
+    .chart-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.85rem;
+      font-size: 0.75rem;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .hourly-grid {
+      display: flex;
+      align-items: flex-end;
+      gap: 4px;
+      height: 90px;
+      padding-top: 15px;
+    }
+
+    .hourly-bar-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      height: 100%;
+      justify-content: flex-end;
+      position: relative;
+    }
+
+    .hourly-bar {
+      width: 100%;
+      border-radius: 4px 4px 0 0;
+      background: rgba(6, 182, 212, 0.4);
+      min-height: 4px;
+      transition: height 0.4s ease, background 0.2s ease;
+    }
+
+    .hourly-bar.peak {
+      background: var(--cyan);
+      box-shadow: 0 0 8px rgba(6, 182, 212, 0.5);
+    }
+
+    .hourly-bar-label {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+      font-family: 'JetBrains Mono', monospace;
+    }
   </style>
 </head>
 <body>
@@ -2744,6 +3289,63 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="grid" id="agents-grid">
       <!-- Agent cards injected dynamically -->
     </div>
+
+    <!-- Historical Analytics & Burn-Down Section -->
+    <section class="analytics-section">
+      <div class="analytics-header">
+        <div class="analytics-title">
+          <span>📊 Quota Velocity &amp; Burn-Down Analytics</span>
+          <span style="font-size: 0.75rem; font-weight: normal; color: var(--text-muted);">Historical SQLite Timeseries</span>
+        </div>
+        <div class="period-selector">
+          <button class="period-btn" onclick="changeAnalyticsPeriod(1, this)">24h</button>
+          <button class="period-btn" onclick="changeAnalyticsPeriod(3, this)">3 Days</button>
+          <button class="period-btn active" onclick="changeAnalyticsPeriod(7, this)">7 Days</button>
+          <button class="period-btn" onclick="changeAnalyticsPeriod(14, this)">14 Days</button>
+        </div>
+      </div>
+
+      <div class="analytics-summary-grid">
+        <div class="analytics-metric-card">
+          <div class="analytics-metric-label">Active Time Ratio</div>
+          <div class="analytics-metric-value" id="ana-active-ratio" style="color: var(--emerald);">0.0%</div>
+          <div class="analytics-metric-sub">Percent of tracked time active</div>
+        </div>
+        <div class="analytics-metric-card">
+          <div class="analytics-metric-label">Peak Usage Hours</div>
+          <div class="analytics-metric-value" id="ana-peak-hours" style="color: var(--cyan); font-size: 1.1rem;">-</div>
+          <div class="analytics-metric-sub">Highest prompt consumption block</div>
+        </div>
+        <div class="analytics-metric-card">
+          <div class="analytics-metric-label">Optimal Morning Priming</div>
+          <div class="analytics-metric-value" id="ana-rec-time" style="color: var(--amber);">⚡ 07:30</div>
+          <div class="analytics-metric-sub" id="ana-rec-reason">Aligns 5h window for midday reset</div>
+        </div>
+        <div class="analytics-metric-card">
+          <div class="analytics-metric-label">Logged Snapshots</div>
+          <div class="analytics-metric-value" id="ana-events" style="color: var(--indigo);">0 snaps</div>
+          <div class="analytics-metric-sub" id="ana-pokes">0 verified pokes</div>
+        </div>
+      </div>
+
+      <!-- Burn-Down Velocity Chart -->
+      <div class="chart-box">
+        <div class="chart-box-header">
+          <div class="chart-box-title">⚡ 5-Hour Quota Utilization Burn-Down &amp; Velocity</div>
+          <div class="chart-legend" id="chart-legend"></div>
+        </div>
+        <div id="chart-container" style="position: relative; width: 100%; min-height: 200px;"></div>
+      </div>
+
+      <!-- 24-Hour Activity Distribution Heatmap -->
+      <div class="chart-box" style="margin-bottom: 0;">
+        <div class="chart-box-header">
+          <div class="chart-box-title">🕒 24-Hour Diurnal Activity Distribution</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted);">Hourly event density (local time)</div>
+        </div>
+        <div class="hourly-grid" id="hourly-bars"></div>
+      </div>
+    </section>
   </div>
 
   <!-- Scheduled Morning Priming Modal -->
@@ -2869,6 +3471,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             agentsData = JSON.parse(e.data);
             setStreamStatus('live');
             render();
+            fetchAnalytics();
           } catch (err) {
             console.error("SSE parse error:", err);
           }
@@ -2911,6 +3514,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         render();
         if (forceRefresh) {
           showToast("Refreshed latest quota data from providers", "✔");
+          fetchAnalytics();
         }
       } catch (err) {
         console.error("Error fetching status:", err);
@@ -3198,9 +3802,182 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       }
     }
 
+    // Historical Analytics & Burn-Down Logic
+    const AGENT_COLORS = {
+      antigravity: "#06b6d4",
+      codex: "#10b981",
+      personal: "#8b5cf6",
+      work: "#f59e0b",
+      work2: "#f43f5e",
+      cursor: "#3b82f6",
+      windsurf: "#14b8a6",
+      copilot: "#a855f7",
+      aider: "#ec4899"
+    };
+
+    function getAgentColor(agentId) {
+      const clean = (agentId || "").toLowerCase().replace("claude-", "");
+      return AGENT_COLORS[clean] || "#94a3b8";
+    }
+
+    let currentAnalyticsDays = 7;
+
+    async function fetchAnalytics(days = currentAnalyticsDays) {
+      try {
+        const [anaRes, histRes] = await Promise.all([
+          fetch(`/api/analytics?days=${days}`),
+          fetch(`/api/history?hours=${days * 24}`)
+        ]);
+        if (!anaRes.ok || !histRes.ok) return;
+        const analytics = await anaRes.json();
+        const history = await histRes.json();
+
+        renderAnalyticsSummary(analytics);
+        renderBurndownChart(history);
+        renderHourlyDistribution(analytics.hourly_activity, analytics.peak_hours);
+      } catch (err) {
+        console.error("Error fetching analytics:", err);
+      }
+    }
+
+    function changeAnalyticsPeriod(days, btn) {
+      currentAnalyticsDays = days;
+      document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      fetchAnalytics(days);
+    }
+
+    function renderAnalyticsSummary(data) {
+      document.getElementById("ana-active-ratio").innerText = `${data.active_time_ratio}%`;
+      document.getElementById("ana-peak-hours").innerText = data.peak_hours_str || "No activity yet";
+      document.getElementById("ana-rec-time").innerText = `⚡ ${data.recommended_poke_time}`;
+      document.getElementById("ana-rec-reason").innerText = data.recommendation_reason || "Aligned for workday priming";
+      document.getElementById("ana-events").innerText = `${data.total_snapshots} snaps`;
+      document.getElementById("ana-pokes").innerText = `${data.total_pokes} verified pokes`;
+    }
+
+    function renderBurndownChart(history) {
+      const container = document.getElementById("chart-container");
+      const legend = document.getElementById("chart-legend");
+      legend.innerHTML = "";
+
+      if (!history || history.length === 0) {
+        container.innerHTML = `
+          <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 180px; color: var(--text-muted); font-size: 0.85rem;">
+            <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">📈</div>
+            <div>No historical quota records logged yet.</div>
+            <div style="font-size: 0.75rem; margin-top: 0.25rem;">Snapshots are recorded automatically as status checks and auto-checker runs.</div>
+          </div>
+        `;
+        return;
+      }
+
+      const byAgent = {};
+      const agentNames = {};
+      let minTs = Infinity;
+      let maxTs = -Infinity;
+
+      history.forEach(pt => {
+        const aid = pt.agent_id;
+        if (!byAgent[aid]) byAgent[aid] = [];
+        byAgent[aid].push(pt);
+        agentNames[aid] = pt.agent_name || aid;
+        if (pt.timestamp < minTs) minTs = pt.timestamp;
+        if (pt.timestamp > maxTs) maxTs = pt.timestamp;
+      });
+
+      if (minTs === maxTs) {
+        minTs = maxTs - 3600;
+      }
+
+      Object.keys(byAgent).forEach(aid => {
+        const color = getAgentColor(aid);
+        const item = document.createElement("div");
+        item.className = "legend-item";
+        item.innerHTML = `<span class="legend-dot" style="background: ${color};"></span><span>${agentNames[aid]}</span>`;
+        legend.appendChild(item);
+      });
+
+      const svgWidth = 860;
+      const svgHeight = 220;
+      const padLeft = 45;
+      const padRight = 20;
+      const padTop = 20;
+      const padBottom = 30;
+      const chartW = svgWidth - padLeft - padRight;
+      const chartH = svgHeight - padTop - padBottom;
+
+      const scaleX = (ts) => padLeft + ((ts - minTs) / (maxTs - minTs)) * chartW;
+      const scaleY = (pct) => padTop + chartH - (pct / 100.0) * chartH;
+
+      let svg = `<svg viewBox="0 0 ${svgWidth} ${svgHeight}" class="chart-svg" style="width: 100%; height: auto;">`;
+
+      [0, 25, 50, 75, 100].forEach(level => {
+        const y = scaleY(level);
+        svg += `<line x1="${padLeft}" y1="${y}" x2="${svgWidth - padRight}" y2="${y}" stroke="currentColor" stroke-opacity="0.08" stroke-dasharray="3,3" />`;
+        svg += `<text x="${padLeft - 8}" y="${y + 4}" fill="currentColor" opacity="0.4" font-size="10" font-family="'JetBrains Mono', monospace" text-anchor="end">${level}%</text>`;
+      });
+
+      const startStr = new Date(minTs * 1000).toLocaleDateString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const endStr = new Date(maxTs * 1000).toLocaleDateString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      svg += `<text x="${padLeft}" y="${svgHeight - 8}" fill="currentColor" opacity="0.4" font-size="10" font-family="'JetBrains Mono', monospace">${startStr}</text>`;
+      svg += `<text x="${svgWidth - padRight}" y="${svgHeight - 8}" fill="currentColor" opacity="0.4" font-size="10" font-family="'JetBrains Mono', monospace" text-anchor="end">${endStr}</text>`;
+
+      Object.entries(byAgent).forEach(([aid, pts]) => {
+        const color = getAgentColor(aid);
+        const polyPoints = pts.map(p => `${scaleX(p.timestamp).toFixed(1)},${scaleY(p.used_percent).toFixed(1)}`).join(" ");
+
+        svg += `<polyline points="${polyPoints}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.85" />`;
+
+        pts.forEach(p => {
+          const cx = scaleX(p.timestamp).toFixed(1);
+          const cy = scaleY(p.used_percent).toFixed(1);
+          const dStr = new Date(p.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          svg += `<circle cx="${cx}" cy="${cy}" r="3" fill="${color}">
+            <title>${agentNames[aid]}: ${p.used_percent}% used at ${dStr} (${p.is_active ? 'Active' : 'Inactive'})</title>
+          </circle>`;
+        });
+      });
+
+      svg += `</svg>`;
+      container.innerHTML = svg;
+    }
+
+    function renderHourlyDistribution(hourlyActivity, peakHours = []) {
+      const container = document.getElementById("hourly-bars");
+      container.innerHTML = "";
+
+      if (!hourlyActivity) return;
+      const peakSet = new Set(peakHours || []);
+      const maxCount = Math.max(...Object.values(hourlyActivity), 1);
+
+      for (let h = 0; h < 24; h++) {
+        const count = hourlyActivity[h] || 0;
+        const isPeak = peakSet.has(h);
+        const col = document.createElement("div");
+        col.className = "hourly-bar-col";
+        col.title = `${String(h).padStart(2, '0')}:00 - ${count} events logged${isPeak ? ' (Peak Hour)' : ''}`;
+
+        const heightPct = count > 0 ? Math.max(8, Math.round((count / maxCount) * 100)) : 4;
+        const bar = document.createElement("div");
+        bar.className = `hourly-bar ${isPeak ? 'peak' : ''}`;
+        bar.style.height = `${heightPct}%`;
+        if (count === 0) bar.style.opacity = "0.2";
+
+        const label = document.createElement("div");
+        label.className = "hourly-bar-label";
+        label.innerText = h % 3 === 0 ? String(h).padStart(2, '0') : "";
+
+        col.appendChild(bar);
+        col.appendChild(label);
+        container.appendChild(col);
+      }
+    }
+
     // Initial Load & EventSource Startup
     fetchData();
     connectSSE();
+    fetchAnalytics();
     setInterval(tickTimers, 1000);
   </script>
 </body>
@@ -3220,6 +3997,33 @@ class SimpleDashboardHandler(BaseHTTPRequestHandler):
         elif self.path.startswith("/api/status"):
             statuses = fetch_all_statuses()
             data = [s.to_dict() for s in statuses]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(data).encode("utf-8"))
+        elif self.path.startswith("/api/history"):
+            parsed = urlparse(self.path)
+            qs = parse_qs(parsed.query)
+            aid = qs.get("agent_id", [None])[0]
+            try:
+                hrs = int(qs.get("hours", ["168"])[0])
+            except Exception:
+                hrs = 168
+            data = get_history_points(agent_id=aid, hours=hrs)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(data).encode("utf-8"))
+        elif self.path.startswith("/api/analytics"):
+            parsed = urlparse(self.path)
+            qs = parse_qs(parsed.query)
+            try:
+                days = int(qs.get("days", ["7"])[0])
+            except Exception:
+                days = 7
+            data = get_analytics_summary(days=days)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -3962,10 +4766,23 @@ Examples:
         help="Alias for --auto.",
     )
     parser.add_argument(
+        "--analytics",
+        "--insights",
+        action="store_true",
+        help="Display quota consumption velocity, peak hours, and optimal priming analytics.",
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=7,
+        metavar="DAYS",
+        help="Number of days to analyze for analytics (default: 7).",
+    )
+    parser.add_argument(
         "cmd",
         nargs="?",
-        choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule", "auto"],
-        help="Optional positional command alias ('status', 'poke', 'dashboard', 'poke-watch', 'prompt', 'schedule', 'auto')",
+        choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule", "auto", "analytics", "insights"],
+        help="Optional positional command alias ('status', 'poke', 'dashboard', 'poke-watch', 'prompt', 'schedule', 'auto', 'analytics')",
     )
     parser.add_argument(
         "extra_args",
@@ -4021,6 +4838,11 @@ Examples:
         format_spec = args.prompt_format or (args.extra_args[0] if args.extra_args else None)
         output = format_prompt(preset_or_format=format_spec, refresh=args.refresh)
         print(output)
+        return
+
+    is_analytics = args.analytics or (args.cmd in ("analytics", "insights"))
+    if is_analytics:
+        run_analytics_command(days=args.days)
         return
 
     is_status = args.status or args.cmd == "status"

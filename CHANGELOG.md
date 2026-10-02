@@ -13,6 +13,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prevents premature, wasteful poke invocations on accounts approaching their natural reset window.
 
 ### Added
+- **Local SQLite Historical Analytics & Quota Velocity Burn-Down Charts** ([#23](https://github.com/joseamair/agent-quota-tracker/issues/23)):
+  - **Embedded Timeseries Database**: Automated logging of quota snapshots (`snapshots` table) and poke interactions (`pokes` table) to `~/.agent_quota_tracker/history.db` using Python's standard library `sqlite3`.
+  - **Smart Deduplication Engine**: Deduplicates repetitive snapshots within a 60-second window if usage metrics remain unchanged, preventing database bloat during fast SSE streams or terminal watch loops.
+  - **CLI Analytics & Velocity Command (`agents --analytics`, `--insights`, `agents analytics [--days N]`)**:
+    - Calculates active time ratio across the tracked window.
+    - Identifies top 3 peak prompt consumption hours of the day.
+    - Recommends an optimal morning priming time based on first historical activity spike (e.g. 90m prior to align the 5h reset with midday focus blocks).
+    - Renders a 24-hour diurnal activity bar distribution chart and per-account peak usage breakdown in the terminal.
+  - **Web Dashboard 7-Day Burn-Down & Velocity Chart**:
+    - Interactive inline SVG burn-down line chart with agent-specific color branding and hover tooltips for usage percentages and active/inactive state over time.
+    - 24-hour diurnal activity bar chart with peak-hour highlights.
+    - Period selector (24h, 3 Days, 7 Days, 14 Days) powered by new `/api/history` and `/api/analytics` endpoints.
+    - Seamless dark, OLED, and light theme integration.
+  - **Full Tri-Engine Parity**: Available across modular Python package (`src/agent_quota_tracker/history.py`), standalone runner (`agents.py`), and native PowerShell (`agents_native.ps1 -Analytics`).
 - **Additional Agent Trackers: Cursor, Windsurf, GitHub Copilot CLI, and Aider (Beta)** ([#21](https://github.com/joseamair/agent-quota-tracker/issues/21)):
   - **Cursor (Composer / Fast Requests)**: Direct integration with `https://api2.cursor.sh/auth/usage` with automatic token discovery from Cursor's local SQLite database (`state.vscdb`) across Windows, macOS, and Linux.
   - **Windsurf (Cascade / Codeium)**: Integration with Codeium user metadata and credits API (`https://api.codeium.com/register_user/`) with automatic discovery from `~/.codeium/config.json`.

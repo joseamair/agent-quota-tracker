@@ -65,6 +65,11 @@ param(
 
     [switch]$Once,
 
+    [Alias("insights")]
+    [switch]$Analytics,
+
+    [int]$Days = 7,
+
     [Alias("h", "?")]
     [switch]$Help
 )
@@ -77,7 +82,7 @@ if ($Help) {
 Monitor rolling rate limit windows, track weekly resets, and poke AI accounts non-interactively.
 
 USAGE:
-  .\agents_native.ps1 [-Status] [-Poke] [-Auto] [-PokeWatch] [-PokeAt <HH:MM>] [-Interval <dur>] [-Prompt] [-PromptFormat <fmt>] [-ScheduleInstall <HH:MM>] [-ScheduleStatus] [-ScheduleRemove] [-Force] [-TargetAgent <id>] [-Dashboard] [-Help]
+  .\agents_native.ps1 [-Status] [-Poke] [-Auto] [-PokeWatch] [-PokeAt <HH:MM>] [-Interval <dur>] [-Prompt] [-PromptFormat <fmt>] [-ScheduleInstall <HH:MM>] [-ScheduleStatus] [-ScheduleRemove] [-Analytics] [-Days <N>] [-Force] [-TargetAgent <id>] [-Dashboard] [-Help]
 
 OPTIONS:
   -Status, -s            Display live 5-hour rolling threshold window state, time remaining,
@@ -85,6 +90,8 @@ OPTIONS:
   -Auto, -auto           Start continuous autonomous auto-checker loop: checks status, waits for
                          earliest window reset, primes, and repeats until stopped.
   -AutoPoke              Alias for -Auto.
+  -Analytics, -insights  Display quota consumption velocity, peak hours, and optimal priming analytics.
+  -Days <int>            Number of days to analyze for analytics (default: 7).
   -Json, -j              Output raw machine-readable JSON status for all accounts.
   -Watch, -w [seconds]   Continuously refresh the status table every N seconds (default: 15s).
   -Poke, -p              Trigger a prompt on inactive accounts to start the 5h window.
@@ -107,6 +114,7 @@ OPTIONS:
 
 EXAMPLES:
   .\agents_native.ps1 -Status
+  .\agents_native.ps1 -Analytics
   .\agents_native.ps1 -Prompt
   .\agents_native.ps1 -PromptFormat compact
   .\agents_native.ps1 -PromptFormat "Agents: {active}/{total}"
@@ -1383,6 +1391,11 @@ if ($PokeWatch) {
 
 if ($Poke) {
     Invoke-PokeAgents $Force $TargetAgent -NotifyAlert:$Notify
+}
+
+if ($Analytics) {
+    & uv run python "$PSScriptRoot\agents.py" --analytics --days $Days
+    exit 0
 }
 
 if ($Dashboard) {

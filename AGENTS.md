@@ -183,8 +183,15 @@ To automate this strategy without manual terminal loops, the following features 
   - Open callout for community testing, validation, and contributions from active subscribers.
   - Full Tri-Engine Parity across modular Python package, standalone runner (`agents.py`), and pure native PowerShell (`agents_native.ps1`).
 
-### Next Phase Capabilities (v1.2.0 & Beyond)
-- **Historical Timeseries & Velocity Analytics** ([#23](https://github.com/joseamair/agent-quota-tracker/issues/23)): Local SQLite database (`history.db`) tracking burn rates and 7-day burndown charts.
+### Feature 9: Local SQLite Historical Analytics & Burn-Down Charts (`--analytics`) [DELIVERED - v1.2.0]
+- **Tracking Issue**: [#23](https://github.com/joseamair/agent-quota-tracker/issues/23)
+- **Command**: `agents --analytics`, `agents --insights`, `agents analytics [--days N]`
+- **Architecture**:
+  - Embedded SQLite timeseries database under `~/.agent_quota_tracker/history.db` storing quota snapshots and verified poke records.
+  - Zero-bloat deduplication skipping identical metrics recorded within 60 seconds.
+  - Peak-hour analysis calculating top 3 usage hours and recommending optimal morning priming times (e.g., priming 90m prior to align 5h rolling resets with afternoon focus blocks).
+  - Interactive Web Dashboard SVG 7-day velocity burn-down chart, 24-hour diurnal distribution, and summary cards.
+  - Full Tri-Engine Parity across modular Python package (`src/agent_quota_tracker/history.py`), standalone runner (`agents.py`), and native PowerShell (`agents_native.ps1 -Analytics`).
 
 ---
 

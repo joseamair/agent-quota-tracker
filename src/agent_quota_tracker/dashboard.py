@@ -10,31 +10,96 @@ from pathlib import Path
 from typing import Any, Optional
 
 from agent_quota_tracker.core import get_all_statuses, poke_all
+from agent_quota_tracker.scheduler import (
+    get_schedule_status,
+    install_schedule,
+    remove_schedule,
+)
+
+_update_event = threading.Event()
+_server_running = True
 
 
 HTML_TEMPLATE = """<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Agents 5h Threshold & Quota Dashboard</title>
+  <title>⚡ AI Agents Quota Dashboard v2</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    :root {
+    :root, [data-theme="dark"] {
       --bg: #090d16;
+      --bg-gradient: radial-gradient(circle at 50% 0%, #171d36 0%, var(--bg) 75%);
       --card-bg: rgba(22, 27, 46, 0.75);
       --card-border: rgba(255, 255, 255, 0.08);
       --card-hover: rgba(30, 38, 64, 0.9);
+      --card-hover-border: rgba(255, 255, 255, 0.18);
       --text-main: #f1f5f9;
       --text-muted: #94a3b8;
+      --header-title: linear-gradient(to right, #ffffff, #cbd5e1);
+      --box-bg: rgba(0, 0, 0, 0.28);
+      --bar-bg: rgba(255, 255, 255, 0.08);
+      --modal-bg: #111827;
+      --modal-border: rgba(255, 255, 255, 0.12);
+      --input-bg: rgba(0, 0, 0, 0.35);
+      --input-border: rgba(255, 255, 255, 0.12);
       --cyan: #06b6d4;
       --emerald: #10b981;
       --amber: #f59e0b;
       --rose: #f43f5e;
       --indigo: #6366f1;
       --purple: #8b5cf6;
+    }
+
+    [data-theme="oled"] {
+      --bg: #000000;
+      --bg-gradient: #000000;
+      --card-bg: rgba(10, 10, 15, 0.96);
+      --card-border: rgba(0, 240, 255, 0.2);
+      --card-hover: rgba(16, 16, 26, 1);
+      --card-hover-border: rgba(0, 240, 255, 0.5);
+      --text-main: #ffffff;
+      --text-muted: #94a3b8;
+      --header-title: linear-gradient(to right, #00f0ff, #ff007f);
+      --box-bg: rgba(0, 0, 0, 0.8);
+      --bar-bg: rgba(255, 255, 255, 0.06);
+      --modal-bg: #050508;
+      --modal-border: rgba(0, 240, 255, 0.3);
+      --input-bg: #000000;
+      --input-border: rgba(0, 240, 255, 0.3);
+      --cyan: #00f0ff;
+      --emerald: #00ff88;
+      --amber: #ffb800;
+      --rose: #ff0055;
+      --indigo: #7928ca;
+      --purple: #d000ff;
+    }
+
+    [data-theme="light"] {
+      --bg: #f8fafc;
+      --bg-gradient: radial-gradient(circle at 50% 0%, #e2e8f0 0%, var(--bg) 75%);
+      --card-bg: rgba(255, 255, 255, 0.94);
+      --card-border: rgba(15, 23, 42, 0.09);
+      --card-hover: rgba(255, 255, 255, 1);
+      --card-hover-border: rgba(99, 102, 241, 0.35);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --header-title: linear-gradient(to right, #0f172a, #334155);
+      --box-bg: rgba(241, 245, 249, 0.9);
+      --bar-bg: rgba(15, 23, 42, 0.06);
+      --modal-bg: #ffffff;
+      --modal-border: rgba(15, 23, 42, 0.12);
+      --input-bg: #f8fafc;
+      --input-border: rgba(15, 23, 42, 0.15);
+      --cyan: #0284c7;
+      --emerald: #059669;
+      --amber: #d97706;
+      --rose: #e11d48;
+      --indigo: #4f46e5;
+      --purple: #7c3aed;
     }
 
     * {
@@ -44,15 +109,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     body {
-      background: radial-gradient(circle at 50% 0%, #171d36 0%, var(--bg) 75%);
+      background: var(--bg-gradient);
+      background-color: var(--bg);
       color: var(--text-main);
-      font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
       min-height: 100vh;
-      padding: 2.5rem 1.5rem;
+      padding: 2.25rem 1.5rem;
+      transition: background 0.3s ease, color 0.3s ease;
     }
 
     .container {
-      max-width: 1200px;
+      max-width: 1240px;
       margin: 0 auto;
     }
 
@@ -60,9 +127,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 2.5rem;
+      margin-bottom: 2.25rem;
       flex-wrap: wrap;
-      gap: 1rem;
+      gap: 1.25rem;
     }
 
     .header-title {
@@ -87,35 +154,118 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       font-size: 1.85rem;
       font-weight: 800;
       letter-spacing: -0.02em;
-      background: linear-gradient(to right, #fff, #cbd5e1);
+      background: var(--header-title);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
 
-    .subtitle {
-      font-size: 0.9rem;
-      color: var(--text-muted);
+    .subtitle-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
       margin-top: 0.25rem;
+      flex-wrap: wrap;
+    }
+
+    .subtitle {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+    }
+
+    /* SSE Stream Pill */
+    .stream-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 0.25rem 0.65rem;
+      border-radius: 9999px;
+      background: rgba(16, 185, 129, 0.12);
+      color: var(--emerald);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      transition: all 0.3s ease;
+    }
+
+    .stream-pill.fallback {
+      background: rgba(245, 158, 11, 0.12);
+      color: var(--amber);
+      border-color: rgba(245, 158, 11, 0.25);
+    }
+
+    .stream-pill.offline {
+      background: rgba(244, 63, 94, 0.12);
+      color: var(--rose);
+      border-color: rgba(244, 63, 94, 0.25);
+    }
+
+    .stream-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 8px currentColor;
+      animation: pulse 1.8s infinite;
     }
 
     .header-actions {
       display: flex;
-      gap: 0.75rem;
+      gap: 0.65rem;
       align-items: center;
+      flex-wrap: wrap;
+    }
+
+    /* Theme Switcher Segmented Control */
+    .theme-switcher {
+      display: inline-flex;
+      background: var(--box-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 3px;
+      gap: 2px;
+    }
+
+    .theme-btn {
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.35rem 0.65rem;
+      border-radius: 7px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      transition: all 0.2s ease;
+    }
+
+    .theme-btn:hover {
+      color: var(--text-main);
+    }
+
+    .theme-btn.active {
+      background: var(--card-bg);
+      color: var(--text-main);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
     }
 
     button {
       cursor: pointer;
       font-family: inherit;
-      font-size: 0.875rem;
+      font-size: 0.85rem;
       font-weight: 600;
-      padding: 0.65rem 1.25rem;
+      padding: 0.6rem 1.15rem;
       border-radius: 10px;
       border: 1px solid var(--card-border);
       transition: all 0.2s ease;
       display: inline-flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.45rem;
+      user-select: none;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
     }
 
     .btn-primary {
@@ -125,20 +275,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       box-shadow: 0 4px 16px rgba(14, 165, 233, 0.3);
     }
 
-    .btn-primary:hover {
+    .btn-primary:hover:not(:disabled) {
       transform: translateY(-1px);
       box-shadow: 0 6px 20px rgba(14, 165, 233, 0.45);
     }
 
     .btn-secondary {
-      background: rgba(255, 255, 255, 0.05);
+      background: var(--card-bg);
       color: var(--text-main);
     }
 
-    .btn-secondary:hover {
-      background: rgba(255, 255, 255, 0.1);
+    .btn-secondary:hover:not(:disabled) {
+      background: var(--card-hover);
+      border-color: var(--card-hover-border);
     }
 
+    /* Stats Summary */
     .stats-summary {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -152,14 +304,20 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       border-radius: 16px;
       padding: 1.25rem 1.5rem;
       backdrop-filter: blur(12px);
+      transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+
+    .stat-card:hover {
+      border-color: var(--card-hover-border);
+      transform: translateY(-1px);
     }
 
     .stat-label {
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       text-transform: uppercase;
       letter-spacing: 0.05em;
       color: var(--text-muted);
-      margin-bottom: 0.5rem;
+      margin-bottom: 0.4rem;
     }
 
     .stat-value {
@@ -168,9 +326,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       font-family: 'JetBrains Mono', monospace;
     }
 
+    /* Agent Cards Grid */
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
       gap: 1.5rem;
     }
 
@@ -183,12 +342,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       transition: all 0.25s ease;
       position: relative;
       overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
     }
 
     .agent-card:hover {
-      border-color: rgba(255, 255, 255, 0.18);
+      border-color: var(--card-hover-border);
       background: var(--card-hover);
       transform: translateY(-2px);
+    }
+
+    .agent-card.card-exhausted {
+      border-color: rgba(244, 63, 94, 0.4);
     }
 
     .card-top {
@@ -207,22 +373,29 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     .provider-tag {
-      font-size: 0.7rem;
+      font-size: 0.68rem;
       font-weight: 700;
       text-transform: uppercase;
       padding: 0.2rem 0.5rem;
       border-radius: 6px;
-      background: rgba(255, 255, 255, 0.08);
+      background: var(--bar-bg);
       color: var(--text-muted);
+    }
+
+    .status-badges-group {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.35rem;
     }
 
     .status-badge {
       display: inline-flex;
       align-items: center;
       gap: 0.4rem;
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       font-weight: 700;
-      padding: 0.35rem 0.75rem;
+      padding: 0.3rem 0.7rem;
       border-radius: 9999px;
       text-transform: uppercase;
       letter-spacing: 0.04em;
@@ -250,13 +423,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       border: 1px solid rgba(148, 163, 184, 0.2);
     }
 
+    .badge-exhausted {
+      background: rgba(244, 63, 94, 0.18);
+      color: var(--rose);
+      border: 1px solid rgba(244, 63, 94, 0.35);
+      font-size: 0.68rem;
+      padding: 0.2rem 0.55rem;
+    }
+
     @keyframes pulse {
       0%, 100% { opacity: 1; transform: scale(1); }
       50% { opacity: 0.4; transform: scale(0.85); }
     }
 
     .window-timer-box {
-      background: rgba(0, 0, 0, 0.25);
+      background: var(--box-bg);
       border-radius: 12px;
       padding: 1rem 1.25rem;
       margin-bottom: 1.25rem;
@@ -271,7 +452,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     .timer-label {
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.05em;
@@ -282,7 +463,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       font-family: 'JetBrains Mono', monospace;
       font-size: 1.45rem;
       font-weight: 700;
-      color: #38bdf8;
+      color: var(--cyan);
     }
 
     .timer-value.inactive {
@@ -297,17 +478,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     .reset-time-sub {
       font-size: 0.8rem;
       font-family: 'JetBrains Mono', monospace;
-      color: #e2e8f0;
+      color: var(--text-main);
     }
 
     .progress-section {
-      margin-bottom: 1.25rem;
+      margin-bottom: 1.15rem;
     }
 
     .progress-labels {
       display: flex;
       justify-content: space-between;
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       margin-bottom: 0.4rem;
     }
 
@@ -318,7 +499,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     .progress-bar-bg {
       height: 8px;
-      background: rgba(255, 255, 255, 0.08);
+      background: var(--bar-bg);
       border-radius: 9999px;
       overflow: hidden;
       position: relative;
@@ -342,51 +523,219 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       background: linear-gradient(90deg, #f59e0b, #f43f5e);
     }
 
+    .fill-exhausted {
+      background: linear-gradient(90deg, #f43f5e, #dc2626);
+    }
+
+    .weekly-box {
+      margin-top: 0.75rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--card-border);
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+
+    .weekly-labels {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 0.35rem;
+    }
+
+    .weekly-footer {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      margin-top: 0.35rem;
+    }
+
     .card-footer {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding-top: 0.75rem;
-      border-top: 1px solid rgba(255, 255, 255, 0.05);
-      font-size: 0.8rem;
+      padding-top: 0.85rem;
+      border-top: 1px solid var(--card-border);
+      font-size: 0.78rem;
       color: var(--text-muted);
+      margin-top: 0.75rem;
     }
 
     .btn-poke-card {
-      padding: 0.4rem 0.85rem;
+      padding: 0.45rem 0.9rem;
       font-size: 0.75rem;
       border-radius: 8px;
-      background: rgba(255, 255, 255, 0.08);
-      color: #e2e8f0;
+      background: var(--bar-bg);
+      color: var(--text-main);
+      border: 1px solid var(--card-border);
     }
 
-    .btn-poke-card:hover {
-      background: rgba(255, 255, 255, 0.15);
+    .btn-poke-card:hover:not(:disabled) {
+      background: var(--cyan);
+      color: #000;
+      border-color: var(--cyan);
+    }
+
+    .btn-poke-card.force-mode {
+      background: rgba(244, 63, 94, 0.18);
+      color: var(--rose);
+      border-color: rgba(244, 63, 94, 0.4);
+    }
+
+    .btn-poke-card.force-mode:hover:not(:disabled) {
+      background: var(--rose);
       color: white;
     }
 
+    /* Modal */
+    .modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(8px);
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+
+    .modal-backdrop.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .modal {
+      background: var(--modal-bg);
+      border: 1px solid var(--modal-border);
+      border-radius: 20px;
+      width: 100%;
+      max-width: 520px;
+      padding: 2rem;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6);
+      transform: scale(0.95);
+      transition: transform 0.25s ease;
+    }
+
+    .modal-backdrop.open .modal {
+      transform: scale(1);
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 1.25rem;
+    }
+
+    .modal-title {
+      font-size: 1.35rem;
+      font-weight: 800;
+    }
+
+    .modal-close {
+      background: transparent;
+      border: none;
+      font-size: 1.25rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 0.25rem;
+    }
+
+    .modal-close:hover {
+      color: var(--text-main);
+    }
+
+    .status-panel {
+      background: var(--box-bg);
+      border-radius: 12px;
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+      font-size: 0.82rem;
+      line-height: 1.6;
+    }
+
+    .form-group {
+      margin-bottom: 1.25rem;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 0.4rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .form-control {
+      width: 100%;
+      padding: 0.65rem 0.9rem;
+      background: var(--input-bg);
+      border: 1px solid var(--input-border);
+      border-radius: 10px;
+      color: var(--text-main);
+      font-family: inherit;
+      font-size: 0.9rem;
+      outline: none;
+    }
+
+    .form-control:focus {
+      border-color: var(--cyan);
+    }
+
+    .form-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    .form-checkbox input {
+      accent-color: var(--cyan);
+      width: 16px;
+      height: 16px;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.75rem;
+      margin-top: 1.75rem;
+    }
+
+    /* Toast */
     .banner-toast {
       position: fixed;
       bottom: 2rem;
       right: 2rem;
-      background: #1e293b;
-      color: white;
-      border: 1px solid var(--card-border);
+      background: var(--modal-bg);
+      color: var(--text-main);
+      border: 1px solid var(--modal-border);
       border-radius: 12px;
-      padding: 1rem 1.5rem;
+      padding: 0.9rem 1.35rem;
       box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
-      z-index: 9999;
+      z-index: 11000;
       opacity: 0;
       transform: translateY(20px);
       transition: all 0.3s ease;
       display: flex;
       align-items: center;
       gap: 0.75rem;
+      font-size: 0.88rem;
+      pointer-events: none;
     }
 
     .banner-toast.show {
       opacity: 1;
       transform: translateY(0);
+      pointer-events: auto;
     }
   </style>
 </head>
@@ -396,13 +745,25 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div class="header-title">
         <div class="header-icon">⚡</div>
         <div>
-          <h1>AI Agents 5h Window & Quota Tracker</h1>
-          <div class="subtitle">Real-time status across Claude (CCS), Codex, and Google Antigravity</div>
+          <h1>AI Agents Quota Dashboard</h1>
+          <div class="subtitle-row">
+            <span class="subtitle">Real-time status across Claude (CCS), Codex, and Google Antigravity</span>
+            <div class="stream-pill" id="stream-indicator">
+              <span class="stream-dot"></span>
+              <span id="stream-status">Connecting SSE...</span>
+            </div>
+          </div>
         </div>
       </div>
       <div class="header-actions">
-        <button class="btn-secondary" onclick="fetchData()">🔄 Refresh</button>
-        <button class="btn-primary" onclick="triggerPoke()">⚡ Poke Inactive Agents</button>
+        <div class="theme-switcher">
+          <button class="theme-btn" data-theme="dark" onclick="setTheme('dark')">🌙 Dark</button>
+          <button class="theme-btn" data-theme="oled" onclick="setTheme('oled')">⚡ OLED</button>
+          <button class="theme-btn" data-theme="light" onclick="setTheme('light')">☀️ Light</button>
+        </div>
+        <button class="btn-secondary" onclick="openScheduleModal()">⏰ Morning Priming</button>
+        <button class="btn-secondary" onclick="fetchData(true)">🔄 Refresh</button>
+        <button class="btn-primary" id="btn-poke-all" onclick="triggerPokeAll()">⚡ Poke All Idle</button>
       </div>
     </header>
 
@@ -412,17 +773,70 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <div class="stat-value" id="summary-active" style="color: var(--emerald);">- / -</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Inactive / Ready to Poke</div>
+        <div class="stat-label">Idle / Ready to Poke</div>
         <div class="stat-value" id="summary-inactive" style="color: var(--amber);">-</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Next Reset Coming In</div>
-        <div class="stat-value" id="summary-next-reset" style="color: #38bdf8;">-</div>
+        <div class="stat-value" id="summary-next-reset" style="color: var(--cyan);">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">System Monitoring</div>
+        <div class="stat-value" id="summary-total" style="color: var(--indigo);">- Agents</div>
       </div>
     </div>
 
     <div class="grid" id="agents-grid">
-      <!-- Agent cards dynamically injected here -->
+      <!-- Agent cards injected dynamically -->
+    </div>
+  </div>
+
+  <!-- Scheduled Morning Priming Modal -->
+  <div class="modal-backdrop" id="schedule-modal" onclick="closeScheduleModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">⏰ Morning Priming Scheduler</div>
+          <div class="subtitle" style="margin-top: 0.2rem;">OS-Level unattended morning quota priming</div>
+        </div>
+        <button class="modal-close" onclick="closeScheduleModal()">&times;</button>
+      </div>
+
+      <div class="status-panel" id="modal-status-panel">
+        <div><b>Status:</b> <span id="sched-status-text">Checking...</span></div>
+        <div><b>Platform:</b> <span id="sched-platform-text">-</span></div>
+        <div><b>Next Run:</b> <span id="sched-next-run">-</span></div>
+        <div><b>Last Run:</b> <span id="sched-last-run">-</span></div>
+      </div>
+
+      <form id="schedule-form" onsubmit="saveSchedule(event)">
+        <div class="form-group">
+          <label class="form-label">Target Wake Time (24h)</label>
+          <input type="time" class="form-control" id="sched-time" value="07:30" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Recurrence Frequency</label>
+          <select class="form-control" id="sched-frequency">
+            <option value="daily">Daily (Default)</option>
+            <option value="weekdays">Weekdays Only (Mon-Fri)</option>
+            <option value="once">Run Once</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input type="checkbox" id="sched-notify" checked>
+            Send native OS desktop toast notifications upon priming
+          </label>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" id="btn-remove-sched" onclick="removeScheduleTask()" style="display: none; color: var(--rose);">Uninstall Task</button>
+          <button type="button" class="btn-secondary" onclick="closeScheduleModal()">Cancel</button>
+          <button type="submit" class="btn-primary" id="btn-save-sched">Save &amp; Install Task</button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -433,13 +847,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
   <script>
     let agentsData = [];
-    let countdownInterval = null;
+    let eventSource = null;
+    let sseRetryTimer = null;
+    let fallbackPollTimer = null;
 
     function formatSeconds(secs) {
       if (secs <= 0) return "0s";
       const h = Math.floor(secs / 3600);
       const m = Math.floor((secs % 3600) / 60);
-      const s = secs % 60;
+      const s = Math.floor(secs % 60);
       const parts = [];
       if (h > 0) parts.push(`${h}h`);
       if (m > 0) parts.push(`${m}m`);
@@ -455,32 +871,144 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       setTimeout(() => toast.classList.remove("show"), 4000);
     }
 
-    async function fetchData() {
+    // Theme Switcher
+    function setTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('agent_quota_tracker_theme', theme);
+      document.querySelectorAll('.theme-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-theme') === theme);
+      });
+    }
+
+    // Initialize Theme from localStorage
+    const savedTheme = localStorage.getItem('agent_quota_tracker_theme') || 'dark';
+    setTheme(savedTheme);
+
+    function setStreamStatus(status) {
+      const pill = document.getElementById("stream-indicator");
+      const label = document.getElementById("stream-status");
+      pill.className = "stream-pill";
+
+      if (status === "live") {
+        label.innerText = "Live SSE Stream";
+      } else if (status === "fallback") {
+        pill.classList.add("fallback");
+        label.innerText = "Polling (Fallback)";
+      } else {
+        pill.classList.add("offline");
+        label.innerText = "Offline";
+      }
+    }
+
+    // Server-Sent Events (SSE)
+    function connectSSE() {
+      if (eventSource) {
+        eventSource.close();
+      }
+
       try {
-        const res = await fetch("/api/status");
+        eventSource = new EventSource('/api/stream');
+
+        eventSource.addEventListener('quota_update', (e) => {
+          try {
+            agentsData = JSON.parse(e.data);
+            setStreamStatus('live');
+            render();
+          } catch (err) {
+            console.error("SSE parse error:", err);
+          }
+        });
+
+        eventSource.onopen = () => {
+          setStreamStatus('live');
+          if (fallbackPollTimer) {
+            clearInterval(fallbackPollTimer);
+            fallbackPollTimer = null;
+          }
+        };
+
+        eventSource.onerror = () => {
+          setStreamStatus('fallback');
+          eventSource.close();
+          eventSource = null;
+
+          if (!fallbackPollTimer) {
+            fallbackPollTimer = setInterval(() => fetchData(false), 8000);
+          }
+          if (!sseRetryTimer) {
+            sseRetryTimer = setTimeout(() => {
+              sseRetryTimer = null;
+              connectSSE();
+            }, 6000);
+          }
+        };
+      } catch (err) {
+        setStreamStatus('fallback');
+      }
+    }
+
+    async function fetchData(forceRefresh = false) {
+      try {
+        const url = forceRefresh ? "/api/status?refresh=true" : "/api/status";
+        const res = await fetch(url);
         if (!res.ok) throw new Error("Status endpoint failed");
         agentsData = await res.json();
         render();
+        if (forceRefresh) {
+          showToast("Refreshed latest quota data from providers", "✔");
+        }
       } catch (err) {
         console.error("Error fetching status:", err);
       }
     }
 
-    async function triggerPoke(agentId = null) {
-      showToast("Poking agents...", "⏳");
+    async function triggerPokeAll() {
+      const btn = document.getElementById("btn-poke-all");
+      btn.disabled = true;
+      btn.innerHTML = "⏳ Poking All...";
+      showToast("Poking idle agents to prime 5h windows...", "⏳");
       try {
         const res = await fetch("/api/poke", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ agent_id: agentId })
+          body: JSON.stringify({})
         });
-        const results = await res.json();
-        const pokedCount = results.filter(r => r.action_taken === "poked").length;
-        const skippedCount = results.filter(r => r.action_taken === "skipped").length;
-        showToast(`Finished: ${pokedCount} poked, ${skippedCount} already active`, "⚡");
-        await fetchData();
+        const resp = await res.json();
+        const results = resp.results || resp;
+        const pokedCount = (results || []).filter(r => r.action_taken === "poked" || r.verified_active).length;
+        showToast(`Primed ${pokedCount} agent(s) successfully!`, "⚡");
+        await fetchData(true);
       } catch (err) {
         showToast("Error triggering poke: " + err.message, "❌");
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = "⚡ Poke All Idle";
+      }
+    }
+
+    async function triggerPoke(agentId, force = false) {
+      const cardBtn = document.getElementById(`poke-btn-${agentId}`);
+      if (cardBtn) {
+        cardBtn.disabled = true;
+        cardBtn.innerHTML = "⏳ Poking...";
+      }
+      showToast(`Poking agent ${agentId}...`, "⏳");
+      try {
+        const res = await fetch("/api/poke", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agent_id: agentId, force: force })
+        });
+        const resp = await res.json();
+        showToast(`Agent ${agentId} primed successfully!`, "⚡");
+        await fetchData(true);
+      } catch (err) {
+        showToast("Error: " + err.message, "❌");
+      } finally {
+        if (cardBtn) {
+          cardBtn.disabled = false;
+          cardBtn.innerHTML = "⚡ Poke";
+        }
       }
     }
 
@@ -492,6 +1020,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       let nextResetSeconds = null;
 
       agentsData.forEach(agent => {
+        const isExhausted = (agent.weekly_used_percent !== null && agent.weekly_used_percent >= 100.0);
+
         if (agent.is_active) {
           activeCount++;
           if (agent.time_remaining_seconds > 0) {
@@ -502,12 +1032,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         }
 
         const card = document.createElement("div");
-        card.className = "agent-card";
+        card.className = `agent-card ${isExhausted ? 'card-exhausted' : ''}`;
 
-        const fillClass = agent.used_percent > 80 ? "fill-high" : (agent.used_percent > 50 ? "fill-med" : "fill-low");
+        const fillClass = isExhausted ? "fill-exhausted" : (agent.used_percent > 80 ? "fill-high" : (agent.used_percent > 50 ? "fill-med" : "fill-low"));
         const statusBadge = agent.is_active
           ? `<span class="status-badge badge-active">Active</span>`
           : `<span class="status-badge badge-inactive">Inactive</span>`;
+
+        const exhaustedBadge = isExhausted
+          ? `<span class="status-badge badge-exhausted">⚠️ 100% Weekly</span>`
+          : ``;
 
         let resetFormatted = "Ready for trigger";
         if (agent.resets_at) {
@@ -518,57 +1052,65 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         const timerClass = agent.is_active ? "timer-value" : "timer-value inactive";
         const timerText = agent.is_active ? formatSeconds(agent.time_remaining_seconds) : "Window Inactive";
 
+        const pokeBtnLabel = isExhausted ? "⚡ Force Poke" : "⚡ Poke";
+        const pokeBtnClass = isExhausted ? "btn-poke-card force-mode" : "btn-poke-card";
+
         card.innerHTML = `
-          <div class="card-top">
-            <div>
-              <div class="agent-title">
-                ${agent.name}
+          <div>
+            <div class="card-top">
+              <div>
+                <div class="agent-title">
+                  ${agent.name}
+                </div>
+                <span class="provider-tag">${agent.provider}</span>
               </div>
-              <span class="provider-tag">${agent.provider}</span>
+              <div class="status-badges-group">
+                ${statusBadge}
+                ${exhaustedBadge}
+              </div>
             </div>
-            ${statusBadge}
-          </div>
 
-          <div class="window-timer-box">
-            <div class="timer-info-col">
-              <span class="timer-label">5h Window Left</span>
-              <span class="${timerClass}" id="timer-${agent.id}">${timerText}</span>
+            <div class="window-timer-box">
+              <div class="timer-info-col">
+                <span class="timer-label">5h Window Left</span>
+                <span class="${timerClass}" id="timer-${agent.id}">${timerText}</span>
+              </div>
+              <div class="reset-info-col">
+                <span class="timer-label">Next Reset</span>
+                <span class="reset-time-sub">${resetFormatted}</span>
+              </div>
             </div>
-            <div class="reset-info-col">
-              <span class="timer-label">Next Reset</span>
-              <span class="reset-time-sub">${resetFormatted}</span>
-            </div>
-          </div>
 
-          <div class="progress-section">
-            <div class="progress-labels">
-              <span style="color: var(--text-muted); font-size: 0.75rem;">Account Usage</span>
-              <span class="progress-pct" style="color: ${agent.used_percent > 80 ? 'var(--rose)' : '#f8fafc'}">${agent.used_percent}%</span>
+            <div class="progress-section">
+              <div class="progress-labels">
+                <span style="color: var(--text-muted); font-size: 0.75rem;">Account 5h Usage</span>
+                <span class="progress-pct" style="color: ${agent.used_percent > 80 ? 'var(--rose)' : 'inherit'}">${agent.used_percent}%</span>
+              </div>
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill ${fillClass}" style="width: ${Math.min(100, Math.max(2, agent.used_percent))}%"></div>
+              </div>
             </div>
-            <div class="progress-bar-bg">
-              <div class="progress-bar-fill ${fillClass}" style="width: ${Math.min(100, Math.max(2, agent.used_percent))}%"></div>
-            </div>
-          </div>
 
-          ${agent.weekly_reset_str && agent.weekly_reset_str !== '-' ? `
-          <div style="margin-top: 0.85rem; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.06); font-size: 0.8rem; color: var(--text-muted);">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;">
-              <span style="font-size: 0.75rem;">Weekly Quota:</span>
-              <b style="color: #f1f5f9; font-size: 0.75rem;">${agent.weekly_used_percent !== null ? agent.weekly_used_percent + '%' : '-'}</b>
-            </div>
-            ${agent.weekly_used_percent !== null ? `
-            <div class="progress-bar-bg" style="height: 4px; margin-bottom: 0.45rem;">
-              <div class="progress-bar-fill" style="width: ${Math.min(100, Math.max(2, agent.weekly_used_percent))}%; background: linear-gradient(90deg, #38bdf8, #818cf8);"></div>
+            ${agent.weekly_reset_str && agent.weekly_reset_str !== '-' ? `
+            <div class="weekly-box">
+              <div class="weekly-labels">
+                <span style="font-size: 0.75rem;">Weekly Quota:</span>
+                <b style="color: ${isExhausted ? 'var(--rose)' : 'inherit'}; font-size: 0.75rem;">${agent.weekly_used_percent !== null ? agent.weekly_used_percent + '%' : '-'}</b>
+              </div>
+              ${agent.weekly_used_percent !== null ? `
+              <div class="progress-bar-bg" style="height: 5px; margin-bottom: 0.45rem;">
+                <div class="progress-bar-fill" style="width: ${Math.min(100, Math.max(2, agent.weekly_used_percent))}%; background: ${isExhausted ? 'var(--rose)' : 'linear-gradient(90deg, #38bdf8, #818cf8)'};"></div>
+              </div>` : ''}
+              <div class="weekly-footer">
+                <span>Weekly Reset:</span>
+                <span style="color: ${isExhausted ? 'var(--rose)' : 'var(--cyan)'}; font-weight: 600;">${agent.weekly_reset_str}</span>
+              </div>
             </div>` : ''}
-            <div style="display: flex; justify-content: space-between; font-size: 0.75rem;">
-              <span>Weekly Reset:</span>
-              <span style="color: #38bdf8; font-weight: 600;">${agent.weekly_reset_str}</span>
-            </div>
-          </div>` : ''}
+          </div>
 
           <div class="card-footer">
-            <span>${agent.status_label || ''}</span>
-            <button class="btn-poke-card" onclick="triggerPoke('${agent.id}')">⚡ Poke</button>
+            <span>${agent.category ? agent.category.toUpperCase() : 'AGENT'}</span>
+            <button class="${pokeBtnClass}" id="poke-btn-${agent.id}" onclick="triggerPoke('${agent.id}', ${isExhausted})">${pokeBtnLabel}</button>
           </div>
         `;
 
@@ -579,6 +1121,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       document.getElementById("summary-active").innerText = `${activeCount} / ${agentsData.length}`;
       document.getElementById("summary-inactive").innerText = `${agentsData.length - activeCount}`;
       document.getElementById("summary-next-reset").innerText = nextResetSeconds !== null ? formatSeconds(nextResetSeconds) : "None active";
+      document.getElementById("summary-total").innerText = `${agentsData.length} Monitored`;
     }
 
     function tickTimers() {
@@ -603,11 +1146,107 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       }
     }
 
-    // Initial load
+    // Scheduled Priming Modal Logic
+    async function openScheduleModal() {
+      const modal = document.getElementById("schedule-modal");
+      modal.classList.add("open");
+      await loadScheduleStatus();
+    }
+
+    function closeScheduleModal(event) {
+      if (event && event.target !== event.currentTarget) return;
+      document.getElementById("schedule-modal").classList.remove("open");
+    }
+
+    async function loadScheduleStatus() {
+      try {
+        const res = await fetch("/api/schedule");
+        const data = await res.json();
+        const statusText = document.getElementById("sched-status-text");
+        const platformText = document.getElementById("sched-platform-text");
+        const nextRun = document.getElementById("sched-next-run");
+        const lastRun = document.getElementById("sched-last-run");
+        const removeBtn = document.getElementById("btn-remove-sched");
+
+        platformText.innerText = data.platform ? data.platform.toUpperCase() : "OS Default";
+        nextRun.innerText = data.next_run_time || "None";
+        lastRun.innerText = data.last_run_time || "Never";
+
+        if (data.status === "installed") {
+          statusText.innerHTML = `<span style="color: var(--emerald); font-weight: 700;">● Installed (${data.state || 'Active'})</span>`;
+          removeBtn.style.display = "inline-flex";
+        } else {
+          statusText.innerHTML = `<span style="color: var(--amber); font-weight: 700;">○ Not Installed</span>`;
+          removeBtn.style.display = "none";
+        }
+      } catch (err) {
+        console.error("Error loading schedule status:", err);
+      }
+    }
+
+    async function saveSchedule(event) {
+      event.preventDefault();
+      const timeVal = document.getElementById("sched-time").value;
+      const freqVal = document.getElementById("sched-frequency").value;
+      const notifyVal = document.getElementById("sched-notify").checked;
+      const saveBtn = document.getElementById("btn-save-sched");
+
+      saveBtn.disabled = true;
+      saveBtn.innerText = "Installing...";
+
+      try {
+        const res = await fetch("/api/schedule", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "install",
+            time: timeVal,
+            frequency: freqVal,
+            notify: notifyVal
+          })
+        });
+        const data = await res.json();
+        if (data.status === "error") {
+          showToast(`Install failed: ${data.message}`, "❌");
+        } else {
+          showToast(`Scheduled priming installed for ${timeVal}!`, "✔");
+          await loadScheduleStatus();
+        }
+      } catch (err) {
+        showToast("Error saving schedule: " + err.message, "❌");
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.innerText = "Save & Install Task";
+      }
+    }
+
+    async function removeScheduleTask() {
+      if (!confirm("Are you sure you want to remove the scheduled morning priming task?")) return;
+      const removeBtn = document.getElementById("btn-remove-sched");
+      removeBtn.disabled = true;
+      removeBtn.innerText = "Removing...";
+
+      try {
+        const res = await fetch("/api/schedule", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "remove" })
+        });
+        const data = await res.json();
+        showToast("Scheduled morning priming removed.", "✔");
+        await loadScheduleStatus();
+      } catch (err) {
+        showToast("Error removing schedule: " + err.message, "❌");
+      } finally {
+        removeBtn.disabled = false;
+        removeBtn.innerText = "Uninstall Task";
+      }
+    }
+
+    // Initial Load & EventSource Startup
     fetchData();
+    connectSSE();
     setInterval(tickTimers, 1000);
-    // Sync with backend every 10 seconds
-    setInterval(fetchData, 10000);
   </script>
 </body>
 </html>
@@ -625,12 +1264,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self) -> None:
-        if self.path == "/" or self.path == "/index.html":
+        if self.path in ("/", "/index.html"):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
             self.wfile.write(HTML_TEMPLATE.encode("utf-8"))
-        elif self.path == "/api/status":
+        elif self.path.startswith("/api/status"):
+            force_refresh = "refresh=true" in self.path
             statuses = get_all_statuses()
             data = [s.to_dict() for s in statuses]
             self.send_response(200)
@@ -638,41 +1278,95 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps(data).encode("utf-8"))
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def do_POST(self) -> None:
-        if self.path == "/api/poke":
-            content_len = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(content_len).decode("utf-8") if content_len > 0 else "{}"
-            try:
-                payload = json.loads(body)
-            except Exception:
-                payload = {}
-
-            target_agent = payload.get("agent_id")
-            results = poke_all(force=False, agent_id=target_agent)
-            data = [r.to_dict() for r in results]
-
+        elif self.path == "/api/schedule":
+            data = get_schedule_status()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps(data).encode("utf-8"))
+        elif self.path == "/api/stream":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            try:
+                while _server_running:
+                    statuses = get_all_statuses()
+                    data = [s.to_dict() for s in statuses]
+                    payload = f"event: quota_update\ndata: {json.dumps(data)}\n\n"
+                    self.wfile.write(payload.encode("utf-8"))
+                    self.wfile.flush()
+
+                    # Wait up to 5 seconds, or wake instantly when an action is performed
+                    _update_event.wait(timeout=5.0)
+                    _update_event.clear()
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+                return
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_POST(self) -> None:
+        content_len = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(content_len).decode("utf-8") if content_len > 0 else "{}"
+        try:
+            payload = json.loads(body)
+        except Exception:
+            payload = {}
+
+        if self.path == "/api/poke":
+            target_agent = payload.get("agent_id")
+            force = payload.get("force", False)
+            results = poke_all(force=force, agent_id=target_agent)
+            data = [r.to_dict() for r in results]
+
+            _update_event.set()
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "results": data}).encode("utf-8"))
+
+        elif self.path == "/api/schedule":
+            action = payload.get("action", "status")
+            if action == "install":
+                t_str = payload.get("time", "07:30")
+                freq = payload.get("frequency", "daily")
+                notify = payload.get("notify", True)
+                res = install_schedule(time_str=t_str, notify=notify, frequency=freq)
+            elif action == "remove":
+                res = remove_schedule()
+            else:
+                res = get_schedule_status()
+
+            _update_event.set()
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
         else:
             self.send_response(404)
             self.end_headers()
 
 
 def start_dashboard_server(port: int = 5050, open_browser: bool = True) -> None:
+    global _server_running
+    _server_running = True
+
     html_file = Path("dashboard.html")
     generate_html_file(html_file)
 
     server = ThreadingHTTPServer(("127.0.0.1", port), DashboardHandler)
     url = f"http://localhost:{port}"
 
-    print(f"\n🚀 Agents Dashboard running at {url}")
+    print(f"\n🚀 Agents Dashboard v2 running at {url}")
     print(f"📄 Static HTML report generated: {html_file.resolve()}")
     print("Press Ctrl+C to stop the dashboard server.\n")
 
@@ -684,4 +1378,6 @@ def start_dashboard_server(port: int = 5050, open_browser: bool = True) -> None:
     except KeyboardInterrupt:
         print("\nStopping dashboard server...")
     finally:
+        _server_running = False
+        _update_event.set()
         server.server_close()

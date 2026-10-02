@@ -70,6 +70,9 @@ param(
 
     [int]$Days = 7,
 
+    [Alias("backfill-history")]
+    [switch]$Backfill,
+
     [Alias("h", "?")]
     [switch]$Help
 )
@@ -92,6 +95,7 @@ OPTIONS:
   -AutoPoke              Alias for -Auto.
   -Analytics, -insights  Display quota consumption velocity, peak hours, and optimal priming analytics.
   -Days <int>            Number of days to analyze for analytics (default: 7).
+  -Backfill              Backfill past poke history from legacy logs into SQLite database.
   -Json, -j              Output raw machine-readable JSON status for all accounts.
   -Watch, -w [seconds]   Continuously refresh the status table every N seconds (default: 15s).
   -Poke, -p              Trigger a prompt on inactive accounts to start the 5h window.
@@ -1395,6 +1399,11 @@ if ($Poke) {
 
 if ($Analytics) {
     & uv run python "$PSScriptRoot\agents.py" --analytics --days $Days
+    exit 0
+}
+
+if ($Backfill) {
+    & uv run python "$PSScriptRoot\agents.py" --backfill
     exit 0
 }
 

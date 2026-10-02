@@ -675,7 +675,52 @@ def run_analytics_command(days: int = 7) -> None:
             u_color = "bold red" if max_u >= 90 else ("bold yellow" if max_u >= 75 else "green")
             agent_table.add_row(aid, f"[{u_color}]{max_u:.1f}%[/{u_color}]", str(act_s))
         console.print(agent_table)
+
+    # Offer backfill tip if no pokes recorded yet but legacy files exist
+    if summary["total_pokes"] == 0:
+        from pathlib import Path
+        log_f = Path(os.path.expanduser("~")) / ".agent_quota_tracker" / "schedule.log"
+        state_f = Path(os.path.expanduser("~")) / ".agents_dashboard" / "state.json"
+        if log_f.exists() or state_f.exists():
+            console.print("[dim yellow]💡 Tip: Legacy logs detected in your system! Run [bold cyan]agents --backfill[/bold cyan] to import past poke history into your analytics database.[/dim yellow]")
+
     console.print()
+
+
+def run_backfill_cmd() -> None:
+    from agent_quota_tracker.history import backfill_history
+
+    console.print(
+        Panel(
+            "[bold cyan]⚡ Historical Activity Backfill Engine[/bold cyan]\n"
+            "[dim]Importing past morning priming runs and poke timestamps into SQLite history.db...[/dim]",
+            border_style="cyan",
+        )
+    )
+
+    res = backfill_history()
+    pokes_n = res.get("pokes_imported", 0)
+    snaps_n = res.get("snapshots_imported", 0)
+    sources = res.get("sources", [])
+
+    if not sources:
+        console.print("[dim yellow]ℹ No legacy log files (~/.agent_quota_tracker/schedule.log or ~/.agents_dashboard/state.json) found to import.[/dim yellow]\n")
+        return
+
+    table = Table(box=box.ROUNDED, show_header=True)
+    table.add_column("Result", style="bold white", width=26)
+    table.add_column("Details", style="bold cyan", width=50)
+
+    table.add_row("Pokes Imported", f"[bold green]{pokes_n}[/bold green] verified events")
+    table.add_row("Snapshots Recorded", f"[bold green]{snaps_n}[/bold green] active window points")
+    table.add_row("Data Sources", "\n".join(sources))
+
+    console.print(table)
+    if pokes_n > 0 or snaps_n > 0:
+        console.print("[bold green]✔ Successfully backfilled historical activity into SQLite history.db![/bold green]")
+        console.print("[dim]Run [bold]agents --analytics[/bold] or check [bold]agents --dashboard[/bold] to see updated 7-day velocity charts and peak hours.[/dim]\n")
+    else:
+        console.print("[dim]All legacy records are already up to date in SQLite history.db (0 duplicates added).[/dim]\n")
 
 
 
@@ -698,6 +743,8 @@ Examples:
   agents --schedule-remove       Uninstall OS background scheduled task
   agents --dashboard             Launch live web dashboard at http://localhost:5050
   agents --dashboard --port 8080 Run dashboard web server on custom port 8080
+  agents --analytics             Display 7-day quota velocity and peak usage analytics
+  agents --backfill              Backfill past poke history from legacy logs into SQLite database
 """,
     )
 
@@ -863,10 +910,16 @@ Examples:
         help="Number of days to analyze for analytics (default: 7).",
     )
     parser.add_argument(
+        "--backfill",
+        "--backfill-history",
+        action="store_true",
+        help="Backfill historical poke events from legacy schedule logs and state files into SQLite database.",
+    )
+    parser.add_argument(
         "subcommand",
         nargs="?",
-        choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule", "auto", "analytics", "insights"],
-        help="Optional positional subcommand alias for status, poke, dashboard, poke-watch, prompt, schedule, auto, or analytics",
+        choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule", "auto", "analytics", "insights", "backfill", "history"],
+        help="Optional positional subcommand alias for status, poke, dashboard, poke-watch, prompt, schedule, auto, analytics, or backfill",
     )
     parser.add_argument(
         "extra_args",
@@ -917,6 +970,13 @@ Examples:
         return
 
     # Determine command
+    is_backfill = args.backfill or (args.subcommand == "backfill") or (
+        args.subcommand == "history" and args.extra_args and args.extra_args[0].lower() in ("backfill", "import")
+    )
+    if is_backfill:
+        run_backfill_cmd()
+        return
+
     is_prompt = args.prompt or (args.prompt_format is not None) or (args.subcommand == "prompt")
     if is_prompt:
         from agent_quota_tracker.prompt import format_prompt

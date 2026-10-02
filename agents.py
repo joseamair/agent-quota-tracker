@@ -18,6 +18,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -481,7 +482,222 @@ def run_analytics_command(days: int = 7) -> None:
             act_s = s.get("active_snapshots", 0)
             print(f"  {aid:<18} {max_u:>13.1f}% {act_s:>18}")
 
+    if summary["total_pokes"] == 0:
+        log_f = Path(os.path.expanduser("~")) / ".agent_quota_tracker" / "schedule.log"
+        state_f = Path(os.path.expanduser("~")) / ".agents_dashboard" / "state.json"
+        if log_f.exists() or state_f.exists():
+            print("\n  💡 Tip: Legacy logs detected! Run 'agents --backfill' to import past poke history into your analytics database.")
+
     print("\n" + "=" * bar_len + "\n")
+
+
+def normalize_agent_identity(raw_name: str) -> tuple[str, str, str]:
+    """Returns (agent_id, agent_name, provider) for any agent identifier or display name."""
+    cleaned = raw_name.strip()
+    lower = cleaned.lower()
+
+    if "antigravity" in lower or lower == "agy":
+        return ("agy", "Google Antigravity (AGY)", "Google Antigravity")
+    if "codex" in lower:
+        return ("codex", "OpenAI Codex", "OpenAI Codex")
+    if "work2" in lower:
+        return ("claude-work2", "Claude (Work2)", "Anthropic Claude")
+    if "work" in lower:
+        return ("claude-work", "Claude (Work)", "Anthropic Claude")
+    if "personal" in lower:
+        return ("claude-personal", "Claude (Personal)", "Anthropic Claude")
+    if "default" in lower:
+        return ("claude-default", "Claude (Default)", "Anthropic Claude")
+    if "cursor" in lower:
+        return ("cursor", "Cursor Composer", "Cursor")
+    if "windsurf" in lower or "cascade" in lower:
+        return ("windsurf", "Windsurf / Cascade", "Windsurf")
+    if "copilot" in lower:
+        return ("copilot", "GitHub Copilot CLI", "GitHub Copilot")
+    if "aider" in lower or "openrouter" in lower:
+        return ("aider", "Aider / OpenRouter", "Aider")
+    if "claude" in lower:
+        return (f"claude-{lower.replace('claude', '').strip(' -_()')}", cleaned, "Anthropic Claude")
+
+    clean_id = re.sub(r"[^a-zA-Z0-9_-]", "", lower)
+    return (clean_id or "unknown", cleaned, "Unknown")
+
+
+def backfill_history(
+    log_path: Optional[Path] = None,
+    state_path: Optional[Path] = None,
+    db_path: Optional[Path] = None,
+) -> dict[str, Any]:
+    """Backfills past poke activity and active window snapshots into SQLite history.db.
+
+    Scans:
+      1. ~/.agent_quota_tracker/schedule.log (timestamped logs of past morning priming & poke events)
+      2. ~/.agents_dashboard/state.json (last_poked_at ISO timestamps per agent)
+
+    Deduplicates all entries against existing database records; safe and idempotent to run repeatedly.
+    """
+    init_history_db(db_path)
+
+    if log_path is None:
+        log_path = Path(os.path.expanduser("~")) / ".agent_quota_tracker" / "schedule.log"
+    if state_path is None:
+        state_path = Path(os.path.expanduser("~")) / ".agents_dashboard" / "state.json"
+
+    pokes_imported = 0
+    snaps_imported = 0
+    sources_used: list[str] = []
+
+    conn = get_history_connection(db_path)
+    try:
+        cur = conn.cursor()
+
+        # 1. Backfill from schedule.log
+        if log_path.exists():
+            sources_used.append(str(log_path))
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    m = re.match(
+                        r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] Poke executed: (\d+) primed \((.*)\), (\d+) skipped",
+                        line,
+                    )
+                    if not m:
+                        continue
+                    ts_str, count_str, primed_str, skipped_str = m.groups()
+                    if primed_str.strip().lower() == "none":
+                        continue
+
+                    try:
+                        dt = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+                        local_dt = dt.astimezone()
+                        epoch_ts = local_dt.timestamp()
+                        iso_ts = local_dt.isoformat()
+                    except Exception:
+                        continue
+
+                    parts = [p.strip() for p in re.split(r",\s*(?=[A-Z])", primed_str) if p.strip()]
+                    for agent_raw in parts:
+                        aid, aname, prov = normalize_agent_identity(agent_raw)
+
+                        cur.execute(
+                            "SELECT id FROM pokes WHERE agent_id = ? AND abs(timestamp - ?) < 60 LIMIT 1",
+                            (aid, epoch_ts),
+                        )
+                        if not cur.fetchone():
+                            cur.execute(
+                                """
+                                INSERT INTO pokes (timestamp, timestamp_iso, agent_id, agent_name, action, message)
+                                VALUES (?, ?, ?, ?, 'primed', 'Backfilled from schedule.log')
+                                """,
+                                (epoch_ts, iso_ts, aid, aname),
+                            )
+                            pokes_imported += 1
+
+                        cur.execute(
+                            "SELECT id FROM snapshots WHERE agent_id = ? AND abs(timestamp - ?) < 60 LIMIT 1",
+                            (aid, epoch_ts),
+                        )
+                        if not cur.fetchone():
+                            cur.execute(
+                                """
+                                INSERT INTO snapshots (
+                                    timestamp, timestamp_iso, agent_id, agent_name, provider,
+                                    is_active, used_percent, weekly_used_percent, time_remaining_seconds
+                                ) VALUES (?, ?, ?, ?, ?, 1, 0.0, NULL, 18000)
+                                """,
+                                (epoch_ts, iso_ts, aid, aname, prov),
+                            )
+                            snaps_imported += 1
+
+        # 2. Backfill from state.json
+        if state_path.exists():
+            sources_used.append(str(state_path))
+            try:
+                with open(state_path, "r", encoding="utf-8", errors="replace") as f:
+                    state_data = json.load(f)
+                if isinstance(state_data, dict):
+                    for agent_key, info in state_data.items():
+                        if not isinstance(info, dict):
+                            continue
+                        last_poked_at = info.get("last_poked_at")
+                        if not last_poked_at:
+                            continue
+                        try:
+                            dt = datetime.fromisoformat(last_poked_at)
+                            epoch_ts = dt.timestamp()
+                            iso_ts = dt.isoformat()
+                        except Exception:
+                            continue
+
+                        aid, aname, prov = normalize_agent_identity(agent_key)
+
+                        cur.execute(
+                            "SELECT id FROM pokes WHERE agent_id = ? AND abs(timestamp - ?) < 60 LIMIT 1",
+                            (aid, epoch_ts),
+                        )
+                        if not cur.fetchone():
+                            cur.execute(
+                                """
+                                INSERT INTO pokes (timestamp, timestamp_iso, agent_id, agent_name, action, message)
+                                VALUES (?, ?, ?, ?, 'primed', 'Backfilled from state.json')
+                                """,
+                                (epoch_ts, iso_ts, aid, aname),
+                            )
+                            pokes_imported += 1
+
+                        cur.execute(
+                            "SELECT id FROM snapshots WHERE agent_id = ? AND abs(timestamp - ?) < 60 LIMIT 1",
+                            (aid, epoch_ts),
+                        )
+                        if not cur.fetchone():
+                            cur.execute(
+                                """
+                                INSERT INTO snapshots (
+                                    timestamp, timestamp_iso, agent_id, agent_name, provider,
+                                    is_active, used_percent, weekly_used_percent, time_remaining_seconds
+                                ) VALUES (?, ?, ?, ?, ?, 1, 0.0, NULL, 18000)
+                                """,
+                                (epoch_ts, iso_ts, aid, aname, prov),
+                            )
+                            snaps_imported += 1
+            except Exception:
+                pass
+
+        conn.commit()
+    finally:
+        conn.close()
+
+    return {
+        "success": True,
+        "pokes_imported": pokes_imported,
+        "snapshots_imported": snaps_imported,
+        "sources": sources_used,
+    }
+
+
+def run_backfill_cmd() -> None:
+    print("\n" + "=" * 80)
+    print("  ⚡ HISTORICAL ACTIVITY BACKFILL ENGINE")
+    print("  Importing past morning priming runs and poke timestamps into SQLite history.db...")
+    print("=" * 80)
+
+    res = backfill_history()
+    pokes_n = res.get("pokes_imported", 0)
+    snaps_n = res.get("snapshots_imported", 0)
+    sources = res.get("sources", [])
+
+    if not sources:
+        print("  ℹ No legacy log files (~/.agent_quota_tracker/schedule.log or ~/.agents_dashboard/state.json) found to import.\n")
+        return
+
+    print(f"  Pokes Imported:     {pokes_n} verified events")
+    print(f"  Snapshots Recorded: {snaps_n} active window points")
+    print(f"  Data Sources:       {', '.join(sources)}")
+    print("-" * 80)
+    if pokes_n > 0 or snaps_n > 0:
+        print("  ✔ Successfully backfilled historical activity into SQLite history.db!")
+        print("  Run 'agents --analytics' or check 'agents --dashboard' to see updated 7-day velocity charts.\n")
+    else:
+        print("  All legacy records are already up to date in SQLite history.db (0 duplicates added).\n")
 
 
 def format_duration_short(seconds: int) -> str:
@@ -3302,6 +3518,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           <button class="period-btn" onclick="changeAnalyticsPeriod(3, this)">3 Days</button>
           <button class="period-btn active" onclick="changeAnalyticsPeriod(7, this)">7 Days</button>
           <button class="period-btn" onclick="changeAnalyticsPeriod(14, this)">14 Days</button>
+          <button class="period-btn" onclick="triggerBackfill(this)" title="Import past morning priming and poke events from legacy logs">📥 Backfill</button>
         </div>
       </div>
 
@@ -3847,6 +4064,27 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       fetchAnalytics(days);
     }
 
+    async function triggerBackfill(btn) {
+      const orig = btn.innerText;
+      btn.disabled = true;
+      btn.innerText = "⏳ Importing...";
+      try {
+        const res = await fetch("/api/backfill", { method: "POST" });
+        const data = await res.json();
+        if (data.success) {
+          btn.innerText = `✔ +${data.pokes_imported} pokes`;
+          setTimeout(() => { btn.innerText = orig; btn.disabled = false; }, 3000);
+          fetchAnalytics(currentAnalyticsDays);
+        } else {
+          btn.innerText = "✖ Failed";
+          setTimeout(() => { btn.innerText = orig; btn.disabled = false; }, 3000);
+        }
+      } catch (e) {
+        btn.innerText = "✖ Error";
+        setTimeout(() => { btn.innerText = orig; btn.disabled = false; }, 3000);
+      }
+    }
+
     function renderAnalyticsSummary(data) {
       document.getElementById("ana-active-ratio").innerText = `${data.active_time_ratio}%`;
       document.getElementById("ana-peak-hours").innerText = data.peak_hours_str || "No activity yet";
@@ -4036,6 +4274,14 @@ class SimpleDashboardHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps(data).encode("utf-8"))
+        elif self.path.startswith("/api/backfill"):
+            res = backfill_history()
+            _dash_update_event.set()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
         elif self.path == "/api/stream":
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -4117,6 +4363,16 @@ class SimpleDashboardHandler(BaseHTTPRequestHandler):
             else:
                 res = get_schedule_status()
 
+            _dash_update_event.set()
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+
+        elif self.path == "/api/backfill":
+            res = backfill_history()
             _dash_update_event.set()
 
             self.send_response(200)
@@ -4779,10 +5035,16 @@ Examples:
         help="Number of days to analyze for analytics (default: 7).",
     )
     parser.add_argument(
+        "--backfill",
+        "--backfill-history",
+        action="store_true",
+        help="Backfill historical poke events from legacy schedule logs and state files into SQLite database.",
+    )
+    parser.add_argument(
         "cmd",
         nargs="?",
-        choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule", "auto", "analytics", "insights"],
-        help="Optional positional command alias ('status', 'poke', 'dashboard', 'poke-watch', 'prompt', 'schedule', 'auto', 'analytics')",
+        choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule", "auto", "analytics", "insights", "backfill", "history"],
+        help="Optional positional command alias ('status', 'poke', 'dashboard', 'poke-watch', 'prompt', 'schedule', 'auto', 'analytics', 'backfill')",
     )
     parser.add_argument(
         "extra_args",
@@ -4830,6 +5092,13 @@ Examples:
             run_schedule_install_cmd(time_str=sub_action, notify=args.notify, frequency=sched_freq)
         else:
             run_schedule_status_cmd()
+        return
+
+    is_backfill = args.backfill or (args.cmd == "backfill") or (
+        args.cmd == "history" and args.extra_args and args.extra_args[0].lower() in ("backfill", "import")
+    )
+    if is_backfill:
+        run_backfill_cmd()
         return
 
     # Handle prompt command

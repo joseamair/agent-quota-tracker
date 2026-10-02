@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+import re
 import sqlite3
 import time
 from datetime import datetime, timezone, timedelta
@@ -327,3 +329,190 @@ def get_analytics_summary(
         }
     finally:
         conn.close()
+
+
+def normalize_agent_identity(raw_name: str) -> tuple[str, str, str]:
+    """Returns (agent_id, agent_name, provider) for any agent identifier or display name."""
+    cleaned = raw_name.strip()
+    lower = cleaned.lower()
+
+    if "antigravity" in lower or lower == "agy":
+        return ("agy", "Google Antigravity (AGY)", "Google Antigravity")
+    if "codex" in lower:
+        return ("codex", "OpenAI Codex", "OpenAI Codex")
+    if "work2" in lower:
+        return ("claude-work2", "Claude (Work2)", "Anthropic Claude")
+    if "work" in lower:
+        return ("claude-work", "Claude (Work)", "Anthropic Claude")
+    if "personal" in lower:
+        return ("claude-personal", "Claude (Personal)", "Anthropic Claude")
+    if "default" in lower:
+        return ("claude-default", "Claude (Default)", "Anthropic Claude")
+    if "cursor" in lower:
+        return ("cursor", "Cursor Composer", "Cursor")
+    if "windsurf" in lower or "cascade" in lower:
+        return ("windsurf", "Windsurf / Cascade", "Windsurf")
+    if "copilot" in lower:
+        return ("copilot", "GitHub Copilot CLI", "GitHub Copilot")
+    if "aider" in lower or "openrouter" in lower:
+        return ("aider", "Aider / OpenRouter", "Aider")
+    if "claude" in lower:
+        return (f"claude-{lower.replace('claude', '').strip(' -_()')}", cleaned, "Anthropic Claude")
+
+    clean_id = re.sub(r"[^a-zA-Z0-9_-]", "", lower)
+    return (clean_id or "unknown", cleaned, "Unknown")
+
+
+def backfill_history(
+    log_path: Optional[Path] = None,
+    state_path: Optional[Path] = None,
+    db_path: Optional[Path] = None,
+) -> dict[str, Any]:
+    """Backfills past poke activity and active window snapshots into SQLite history.db.
+
+    Scans:
+      1. ~/.agent_quota_tracker/schedule.log (timestamped logs of past morning priming & poke events)
+      2. ~/.agents_dashboard/state.json (last_poked_at ISO timestamps per agent)
+
+    Deduplicates all entries against existing database records; safe and idempotent to run repeatedly.
+    """
+    init_db(db_path)
+
+    if log_path is None:
+        log_path = Path(os.path.expanduser("~")) / ".agent_quota_tracker" / "schedule.log"
+    if state_path is None:
+        state_path = Path(os.path.expanduser("~")) / ".agents_dashboard" / "state.json"
+
+    pokes_imported = 0
+    snaps_imported = 0
+    sources_used: list[str] = []
+
+    conn = get_connection(db_path)
+    try:
+        cur = conn.cursor()
+
+        # 1. Backfill from schedule.log
+        if log_path.exists():
+            sources_used.append(str(log_path))
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    m = re.match(
+                        r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] Poke executed: (\d+) primed \((.*)\), (\d+) skipped",
+                        line,
+                    )
+                    if not m:
+                        continue
+                    ts_str, count_str, primed_str, skipped_str = m.groups()
+                    if primed_str.strip().lower() == "none":
+                        continue
+
+                    try:
+                        # Parse timestamp as local datetime
+                        dt = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+                        local_dt = dt.astimezone()
+                        epoch_ts = local_dt.timestamp()
+                        iso_ts = local_dt.isoformat()
+                    except Exception:
+                        continue
+
+                    # Split agents by comma followed by capital letter or space
+                    parts = [p.strip() for p in re.split(r",\s*(?=[A-Z])", primed_str) if p.strip()]
+                    for agent_raw in parts:
+                        aid, aname, prov = normalize_agent_identity(agent_raw)
+
+                        # Deduplicate in pokes: within 60s
+                        cur.execute(
+                            "SELECT id FROM pokes WHERE agent_id = ? AND abs(timestamp - ?) < 60 LIMIT 1",
+                            (aid, epoch_ts),
+                        )
+                        if not cur.fetchone():
+                            cur.execute(
+                                """
+                                INSERT INTO pokes (timestamp, timestamp_iso, agent_id, agent_name, action, message)
+                                VALUES (?, ?, ?, ?, 'primed', 'Backfilled from schedule.log')
+                                """,
+                                (epoch_ts, iso_ts, aid, aname),
+                            )
+                            pokes_imported += 1
+
+                        # Deduplicate in snapshots: within 60s
+                        cur.execute(
+                            "SELECT id FROM snapshots WHERE agent_id = ? AND abs(timestamp - ?) < 60 LIMIT 1",
+                            (aid, epoch_ts),
+                        )
+                        if not cur.fetchone():
+                            cur.execute(
+                                """
+                                INSERT INTO snapshots (
+                                    timestamp, timestamp_iso, agent_id, agent_name, provider,
+                                    is_active, used_percent, weekly_used_percent, time_remaining_seconds
+                                ) VALUES (?, ?, ?, ?, ?, 1, 0.0, NULL, 18000)
+                                """,
+                                (epoch_ts, iso_ts, aid, aname, prov),
+                            )
+                            snaps_imported += 1
+
+        # 2. Backfill from state.json
+        if state_path.exists():
+            sources_used.append(str(state_path))
+            try:
+                with open(state_path, "r", encoding="utf-8", errors="replace") as f:
+                    state_data = json.load(f)
+                if isinstance(state_data, dict):
+                    for agent_key, info in state_data.items():
+                        if not isinstance(info, dict):
+                            continue
+                        last_poked_at = info.get("last_poked_at")
+                        if not last_poked_at:
+                            continue
+                        try:
+                            dt = datetime.fromisoformat(last_poked_at)
+                            epoch_ts = dt.timestamp()
+                            iso_ts = dt.isoformat()
+                        except Exception:
+                            continue
+
+                        aid, aname, prov = normalize_agent_identity(agent_key)
+
+                        cur.execute(
+                            "SELECT id FROM pokes WHERE agent_id = ? AND abs(timestamp - ?) < 60 LIMIT 1",
+                            (aid, epoch_ts),
+                        )
+                        if not cur.fetchone():
+                            cur.execute(
+                                """
+                                INSERT INTO pokes (timestamp, timestamp_iso, agent_id, agent_name, action, message)
+                                VALUES (?, ?, ?, ?, 'primed', 'Backfilled from state.json')
+                                """,
+                                (epoch_ts, iso_ts, aid, aname),
+                            )
+                            pokes_imported += 1
+
+                        cur.execute(
+                            "SELECT id FROM snapshots WHERE agent_id = ? AND abs(timestamp - ?) < 60 LIMIT 1",
+                            (aid, epoch_ts),
+                        )
+                        if not cur.fetchone():
+                            cur.execute(
+                                """
+                                INSERT INTO snapshots (
+                                    timestamp, timestamp_iso, agent_id, agent_name, provider,
+                                    is_active, used_percent, weekly_used_percent, time_remaining_seconds
+                                ) VALUES (?, ?, ?, ?, ?, 1, 0.0, NULL, 18000)
+                                """,
+                                (epoch_ts, iso_ts, aid, aname, prov),
+                            )
+                            snaps_imported += 1
+            except Exception:
+                pass
+
+        conn.commit()
+    finally:
+        conn.close()
+
+    return {
+        "success": True,
+        "pokes_imported": pokes_imported,
+        "snapshots_imported": snaps_imported,
+        "sources": sources_used,
+    }

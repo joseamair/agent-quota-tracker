@@ -247,3 +247,26 @@ def test_get_api_analytics(dashboard_test_server):
             assert data["active_time_ratio"] == 45.0
             assert data["recommended_poke_time"] == "07:30"
 
+
+def test_post_api_backfill(dashboard_test_server):
+    mock_res = {"success": True, "pokes_imported": 5, "snapshots_imported": 5, "sources": ["mock_log"]}
+    with patch("agent_quota_tracker.history.backfill_history", return_value=mock_res):
+        url = f"{dashboard_test_server}/api/backfill"
+        req = urllib.request.Request(url, data=b"{}", headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            assert resp.status == 200
+            data = json.loads(resp.read().decode("utf-8"))
+            assert data["success"] is True
+            assert data["pokes_imported"] == 5
+
+
+def test_get_api_backfill(dashboard_test_server):
+    mock_res = {"success": True, "pokes_imported": 2, "snapshots_imported": 2, "sources": ["mock_state"]}
+    with patch("agent_quota_tracker.history.backfill_history", return_value=mock_res):
+        url = f"{dashboard_test_server}/api/backfill"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            assert resp.status == 200
+            data = json.loads(resp.read().decode("utf-8"))
+            assert data["success"] is True
+            assert data["pokes_imported"] == 2
+

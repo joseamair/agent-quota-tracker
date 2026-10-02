@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Pure PowerShell implementation to track and poke 5-hour rate limit windows across Claude (CCS), Codex, and AGY.
 

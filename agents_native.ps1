@@ -660,6 +660,94 @@ function Get-AgentData {
                 }
             }
         }
+        elseif ($prov -eq "cursor") {
+            try {
+                $rawJson = & uv run --no-sync python -c "from agents import get_cursor_status; import json; print(json.dumps(get_cursor_status('$name', '$($acc.category)').to_dict()))" 2>$null
+                if ($rawJson) {
+                    $obj = $rawJson | ConvertFrom-Json
+                    $isAct = [bool]$obj.is_active
+                    $used = [double]$obj.used_percent
+                    $state = if ($isAct) { "● ACTIVE" } else { "○ INACTIVE" }
+                    $results += [PSCustomObject]@{
+                        Id = $aid; Name = $name; Provider = "Cursor"; IsActive = $isAct; State = $state; Remaining = if ($isAct) { "Active" } else { "Idle" }; RemainingSeconds = 0; NextReset = if ($obj.weekly_resets_at) { "$($obj.weekly_resets_at)" } else { "Monthly" }; UsagePct = "$used%"; WkUsage = if ($obj.weekly_used_percent -ne $null) { "$($obj.weekly_used_percent)%" } else { "-" }; WeeklyReset = if ($obj.weekly_reset_str) { "$($obj.weekly_reset_str)" } else { "-" }
+                    }
+                } else {
+                    $results += [PSCustomObject]@{
+                        Id = $aid; Name = $name; Provider = "Cursor"; IsActive = $false; State = "○ INACTIVE"; Remaining = "Unconfigured"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"
+                    }
+                }
+            } catch {
+                $results += [PSCustomObject]@{
+                    Id = $aid; Name = $name; Provider = "Cursor"; IsActive = $false; State = "ERROR"; Remaining = "-"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "-"; WkUsage = "-"; WeeklyReset = "-"
+                }
+            }
+        }
+        elseif ($prov -in @("windsurf", "codeium")) {
+            try {
+                $rawJson = & uv run --no-sync python -c "from agents import get_windsurf_status; import json; print(json.dumps(get_windsurf_status('$name', '$($acc.category)').to_dict()))" 2>$null
+                if ($rawJson) {
+                    $obj = $rawJson | ConvertFrom-Json
+                    $isAct = [bool]$obj.is_active
+                    $used = [double]$obj.used_percent
+                    $state = if ($isAct) { "● ACTIVE" } else { "○ INACTIVE" }
+                    $results += [PSCustomObject]@{
+                        Id = $aid; Name = $name; Provider = "Windsurf"; IsActive = $isAct; State = $state; Remaining = if ($isAct) { "Active" } else { "Idle" }; RemainingSeconds = 0; NextReset = "-"; UsagePct = "$used%"; WkUsage = if ($obj.weekly_used_percent -ne $null) { "$($obj.weekly_used_percent)%" } else { "-" }; WeeklyReset = "-"
+                    }
+                } else {
+                    $results += [PSCustomObject]@{
+                        Id = $aid; Name = $name; Provider = "Windsurf"; IsActive = $false; State = "○ INACTIVE"; Remaining = "Unconfigured"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"
+                    }
+                }
+            } catch {
+                $results += [PSCustomObject]@{
+                    Id = $aid; Name = $name; Provider = "Windsurf"; IsActive = $false; State = "ERROR"; Remaining = "-"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "-"; WkUsage = "-"; WeeklyReset = "-"
+                }
+            }
+        }
+        elseif ($prov -in @("copilot", "github-copilot", "github_copilot")) {
+            try {
+                $rawJson = & uv run --no-sync python -c "from agents import get_copilot_status; import json; print(json.dumps(get_copilot_status('$name', '$($acc.category)').to_dict()))" 2>$null
+                if ($rawJson) {
+                    $obj = $rawJson | ConvertFrom-Json
+                    $isAct = [bool]$obj.is_active
+                    $used = [double]$obj.used_percent
+                    $state = if ($isAct) { "● ACTIVE" } else { "○ INACTIVE" }
+                    $results += [PSCustomObject]@{
+                        Id = $aid; Name = $name; Provider = "Copilot"; IsActive = $isAct; State = $state; Remaining = if ($obj.time_remaining_str) { "$($obj.time_remaining_str)" } else { "Active" }; RemainingSeconds = [int]$obj.time_remaining_seconds; NextReset = if ($obj.resets_at) { "$($obj.resets_at)" } else { "-" }; UsagePct = "$used%"; WkUsage = "-"; WeeklyReset = "-"
+                    }
+                } else {
+                    $results += [PSCustomObject]@{
+                        Id = $aid; Name = $name; Provider = "Copilot"; IsActive = $false; State = "○ INACTIVE"; Remaining = "Unconfigured"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"
+                    }
+                }
+            } catch {
+                $results += [PSCustomObject]@{
+                    Id = $aid; Name = $name; Provider = "Copilot"; IsActive = $false; State = "ERROR"; Remaining = "-"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "-"; WkUsage = "-"; WeeklyReset = "-"
+                }
+            }
+        }
+        elseif ($prov -in @("aider", "openrouter")) {
+            try {
+                $rawJson = & uv run --no-sync python -c "from agents import get_aider_status; import json; print(json.dumps(get_aider_status('$name', '$($acc.category)').to_dict()))" 2>$null
+                if ($rawJson) {
+                    $obj = $rawJson | ConvertFrom-Json
+                    $isAct = [bool]$obj.is_active
+                    $used = [double]$obj.used_percent
+                    $state = if ($isAct) { "● ACTIVE" } else { "○ INACTIVE" }
+                    $results += [PSCustomObject]@{
+                        Id = $aid; Name = $name; Provider = "Aider"; IsActive = $isAct; State = $state; Remaining = if ($isAct) { "Active" } else { "Idle" }; RemainingSeconds = 0; NextReset = "-"; UsagePct = "$used%"; WkUsage = if ($obj.weekly_used_percent -ne $null) { "$($obj.weekly_used_percent)%" } else { "-" }; WeeklyReset = "-"
+                    }
+                } else {
+                    $results += [PSCustomObject]@{
+                        Id = $aid; Name = $name; Provider = "Aider"; IsActive = $false; State = "○ INACTIVE"; Remaining = "Unconfigured"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"
+                    }
+                }
+            } catch {
+                $results += [PSCustomObject]@{
+                    Id = $aid; Name = $name; Provider = "Aider"; IsActive = $false; State = "ERROR"; Remaining = "-"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "-"; WkUsage = "-"; WeeklyReset = "-"
+                }
+            }
+        }
     }
 
     Save-AgentCache $results
@@ -901,6 +989,18 @@ function Invoke-PokeAgents($forceMode, $targetAgentId, [switch]$NotifyAlert) {
                 $rawOutput = $out -join "`n"
             } elseif ($item.Id -eq "agy") {
                 $out = & agy -p "Hello, how are you doing?" --disable-slash-commands 2>&1
+                $rawOutput = $out -join "`n"
+            } elseif ($item.Id -eq "cursor" -or $item.Provider -eq "Cursor") {
+                $out = & uv run --no-sync python -c "from agents import poke_cursor; import json; print(json.dumps(poke_cursor()))" 2>&1
+                $rawOutput = $out -join "`n"
+            } elseif ($item.Id -in @("windsurf", "codeium") -or $item.Provider -eq "Windsurf") {
+                $out = & uv run --no-sync python -c "from agents import poke_windsurf; import json; print(json.dumps(poke_windsurf()))" 2>&1
+                $rawOutput = $out -join "`n"
+            } elseif ($item.Id -in @("copilot", "github-copilot") -or $item.Provider -eq "Copilot") {
+                $out = & uv run --no-sync python -c "from agents import poke_copilot; import json; print(json.dumps(poke_copilot()))" 2>&1
+                $rawOutput = $out -join "`n"
+            } elseif ($item.Id -in @("aider", "openrouter") -or $item.Provider -eq "Aider") {
+                $out = & uv run --no-sync python -c "from agents import poke_aider; import json; print(json.dumps(poke_aider()))" 2>&1
                 $rawOutput = $out -join "`n"
             }
             $replyText = Extract-ReplySnippet $rawOutput

@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prevents premature, wasteful poke invocations on accounts approaching their natural reset window.
 
 ### Added
+- **Additional Agent Trackers: Cursor, Windsurf, GitHub Copilot CLI, and Aider (Beta)** ([#21](https://github.com/joseamair/agent-quota-tracker/issues/21)):
+  - **Cursor (Composer / Fast Requests)**: Direct integration with `https://api2.cursor.sh/auth/usage` with automatic token discovery from Cursor's local SQLite database (`state.vscdb`) across Windows, macOS, and Linux.
+  - **Windsurf (Cascade / Codeium)**: Integration with Codeium user metadata and credits API (`https://api.codeium.com/register_user/`) with automatic discovery from `~/.codeium/config.json`.
+  - **GitHub Copilot CLI**: Token extraction via `gh auth token` or `github-copilot/hosts.json` and verification via GitHub Copilot Token API (`api.github.com/copilot_internal/v2/token`).
+  - **Aider / OpenRouter**: Real-time balance and usage monitoring via OpenRouter key auth endpoint (`openrouter.ai/api/v1/auth/key`) with auto-discovery from `OPENROUTER_API_KEY`, `.env`, and `~/.aider.conf.yml`.
+  - **Community Validation**: Added callout in documentation inviting community contributions and validation from active subscribers.
+  - Full Tri-Engine Parity across modular Python package (`CursorTracker`, `WindsurfTracker`, `CopilotTracker`, `AiderTracker`), standalone runner (`agents.py`), and pure native PowerShell (`agents_native.ps1`).
+
 - **Web Dashboard v2 with Real-Time SSE Push Updates & Interactive Controls** ([#24](https://github.com/joseamair/agent-quota-tracker/issues/24)):
   - **Server-Sent Events (SSE)**: Added `/api/stream` streaming endpoint delivering instant, push-based quota updates to connected browser clients without periodic polling overhead, featuring zero-latency trigger events upon actions and auto-reconnection with polling fallback.
   - **Live Streaming Indicator**: Header badge displaying live connection status (`🟢 Live SSE Stream` or `🟡 Polling Fallback`).

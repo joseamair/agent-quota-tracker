@@ -11,6 +11,10 @@ from agent_quota_tracker.trackers.agy import AGYTracker
 from agent_quota_tracker.trackers.base import BaseTracker
 from agent_quota_tracker.trackers.claude import ClaudeTracker
 from agent_quota_tracker.trackers.codex import CodexTracker
+from agent_quota_tracker.trackers.cursor import CursorTracker
+from agent_quota_tracker.trackers.windsurf import WindsurfTracker
+from agent_quota_tracker.trackers.copilot import CopilotTracker
+from agent_quota_tracker.trackers.aider import AiderTracker
 
 DEFAULT_ACCOUNTS: list[dict[str, Any]] = [
     {
@@ -88,6 +92,19 @@ def get_default_trackers() -> list[BaseTracker]:
         elif prov == "claude":
             prof = acc.get("profile") or aid
             trackers.append(ClaudeTracker(prof, name, category=category))
+        elif prov == "cursor":
+            token = acc.get("access_token") or acc.get("token")
+            cookie = acc.get("cookie")
+            trackers.append(CursorTracker(name, category=category, access_token=token, cookie=cookie, agent_id=aid))
+        elif prov in ("windsurf", "codeium"):
+            key = acc.get("api_key") or acc.get("key")
+            trackers.append(WindsurfTracker(name, category=category, api_key=key, agent_id=aid))
+        elif prov in ("copilot", "github-copilot", "github_copilot"):
+            token = acc.get("token") or acc.get("github_token")
+            trackers.append(CopilotTracker(name, category=category, token=token, agent_id=aid))
+        elif prov in ("aider", "openrouter"):
+            key = acc.get("api_key") or acc.get("key")
+            trackers.append(AiderTracker(name, category=category, api_key=key, agent_id=aid, provider=prov))
     return trackers
 
 

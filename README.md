@@ -41,12 +41,20 @@ A lightweight, local quota monitoring system and web dashboard designed for deve
 
 ## 🤖 Supported Accounts
 
-| Account | Provider | CLI / Integration | Quota Engine |
-|---|---|---|---|
-| **Google Antigravity** | Google | `agy` CLI | Direct live quota (`agy -p "/usage" --output-format json`) |
-| **OpenAI Codex** | OpenAI | `codex` CLI | Real-time JSON-RPC (`account/rateLimits/read`) |
-| **Claude (Multi-Account)** | Anthropic | CCS profile (`~/.ccs/instances/`) | Instant live OAuth Usage API (`api.anthropic.com`) |
-| **Claude (Standard CLI)** | Anthropic | Official `claude` (`~/.claude/`) | Direct OAuth Usage API with fallback to `claude -p` |
+| Account / Agent | Provider | CLI / Integration | Quota Engine | Status |
+|---|---|---|---|---|
+| **Google Antigravity** | Google | `agy` CLI | Direct live quota (`agy -p "/usage" --output-format json`) | Stable |
+| **OpenAI Codex** | OpenAI | `codex` CLI | Real-time JSON-RPC (`account/rateLimits/read`) | Stable |
+| **Claude (Multi-Account)** | Anthropic | CCS profile (`~/.ccs/instances/`) | Instant live OAuth Usage API (`api.anthropic.com`) | Stable |
+| **Claude (Standard CLI)** | Anthropic | Official `claude` (`~/.claude/`) | Direct OAuth Usage API with fallback to `claude -p` | Stable |
+| **Cursor (Composer)** | Cursor / Anysphere | Local `state.vscdb` / JWT | Direct Usage API (`api2.cursor.sh/auth/usage`) | 🧪 Beta |
+| **Windsurf (Cascade)** | Codeium | `~/.codeium/config.json` | Codeium User Metadata API | 🧪 Beta |
+| **GitHub Copilot CLI** | GitHub | `gh auth token` / hosts.json | Copilot Internal Token API (`api.github.com/copilot_internal/v2/token`) | 🧪 Beta |
+| **Aider / OpenRouter** | OpenRouter / Aider | Env `OPENROUTER_API_KEY` | OpenRouter Auth Key & Credit API (`openrouter.ai/api/v1/auth/key`) | 🧪 Beta |
+
+> 📢 **Open for Community Testing & Contributions!**  
+> Support for **Cursor**, **Windsurf**, **GitHub Copilot CLI**, and **Aider / OpenRouter** has been implemented based on official developer specs and reverse-engineered token discovery mechanisms.  
+> If you have active subscriptions or tokens for any of these tools, we warmly invite you to enable them in your `agents.config.json` and share your feedback, validation reports, or pull requests to help refine and polish them!
 
 > 💡 **Claude Multi-Account vs Single-Account Setup**:
 > - **Multi-Account (`ccs`)**: By default, this dashboard tracks 3 distinct Claude profiles (`personal`, `work`, `work2`) using the [Claude Code Switcher (`ccs`)](https://github.com/joseamair/ccs) tool. Each profile keeps its own tokens in `~/.ccs/instances/<profile>`.

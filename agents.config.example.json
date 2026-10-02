@@ -40,6 +40,38 @@
       "name": "Claude (Work2)",
       "category": "work",
       "enabled": true
+    },
+    {
+      "id": "cursor",
+      "provider": "cursor",
+      "name": "Cursor Composer",
+      "category": "personal",
+      "enabled": false,
+      "access_token": "Optional: set JWT or auto-discovered from local state.vscdb"
+    },
+    {
+      "id": "windsurf",
+      "provider": "windsurf",
+      "name": "Windsurf (Cascade)",
+      "category": "personal",
+      "enabled": false,
+      "api_key": "Optional: set Codeium API key or auto-discovered from ~/.codeium/config.json"
+    },
+    {
+      "id": "copilot",
+      "provider": "copilot",
+      "name": "GitHub Copilot CLI",
+      "category": "personal",
+      "enabled": false,
+      "token": "Optional: set OAuth token or auto-discovered via gh auth token"
+    },
+    {
+      "id": "aider",
+      "provider": "aider",
+      "name": "Aider (OpenRouter)",
+      "category": "personal",
+      "enabled": false,
+      "api_key": "Optional: set OpenRouter API key or auto-discovered from OPENROUTER_API_KEY"
     }
   ]
 }

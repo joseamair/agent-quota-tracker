@@ -92,7 +92,7 @@ class CursorTracker(BaseTracker):
     def _query_usage_api(self, token: Optional[str]) -> tuple[Optional[dict[str, Any]], Optional[str]]:
         """Queries the Cursor usage endpoint. Returns (data, error_message)."""
         headers: dict[str, str] = {
-            "User-Agent": "agent-quota-tracker/1.2.0",
+            "User-Agent": "agent-quota-tracker/1.2.1",
             "Accept": "application/json",
         }
         if token:

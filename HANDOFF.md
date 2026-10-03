@@ -7,7 +7,7 @@ Welcome, incoming AI Coding Agent! This document gives you immediate, end-to-end
 ## 📌 Executive Summary
 
 - **Repository**: [`agent-quota-tracker`](https://github.com/joseamair/agent-quota-tracker)
-- **Current Version**: `v1.2.0` (Released 2026-10-03)
+- **Current Version**: `v1.2.1` (Released 2026-10-03)
 - **Repository Visibility**: Public GitHub Template repository
 - **Primary Goal**: High-performance local CLI monitor, autonomous watchdog daemon, and glassmorphism web dashboard tracking 5-hour rolling threshold windows and weekly quotas across AI coding agents (Claude via CCS & official CLI, OpenAI Codex, and Google Antigravity).
 
@@ -33,6 +33,11 @@ Welcome, incoming AI Coding Agent! This document gives you immediate, end-to-end
 >      $b64 = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$token"))
 >      git -c http.extraheader="Authorization: Basic $b64" push origin <branch>
 >      ```
+> 4. **Verified Commits & Releases Rule (No Direct Pushes to `main`)**:
+>    - **NEVER** push commits directly to `main` (`git push origin main`). Direct pushes create unsigned local commits and will NOT receive GitHub's verified signature.
+>    - **ALL** changes—including bugfixes, features, documentation updates, and release version bumps—MUST be branched (`feat/...`, `chore/...`, `release/...`), submitted as a Pull Request (`gh pr create`), and squash-merged via GitHub (`gh pr merge --squash --admin`).
+>    - This guarantees that GitHub's servers generate the squashed commit and sign it with GitHub's verified GPG key (`web-flow`), ensuring that all commits and release tags display the verified seal:
+>      `"This commit was created on GitHub.com and signed with GitHub’s verified signature."`
 
 ---
 

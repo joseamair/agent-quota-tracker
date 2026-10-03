@@ -825,7 +825,14 @@
       align-items: center;
       flex-wrap: wrap;
       gap: 0.75rem;
-      margin-bottom: 1rem;
+      margin-bottom: 0.85rem;
+    }
+
+    .chart-box-title-group {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
     }
 
     .chart-box-title {
@@ -833,23 +840,187 @@
       font-weight: 700;
     }
 
-    .chart-legend {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.85rem;
-      font-size: 0.75rem;
+    .zoom-reset-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.25rem 0.65rem;
+      font-size: 0.72rem;
+      font-weight: 700;
+      border-radius: 6px;
+      background: rgba(6, 182, 212, 0.15);
+      color: var(--cyan);
+      border: 1px solid rgba(6, 182, 212, 0.35);
+      cursor: pointer;
+      transition: all 0.2s ease;
     }
 
-    .legend-item {
+    .zoom-reset-btn:hover {
+      background: var(--cyan);
+      color: #000;
+    }
+
+    .metric-selector {
       display: flex;
+      gap: 0.25rem;
+      background: var(--card-bg);
+      padding: 0.25rem;
+      border-radius: 8px;
+      border: 1px solid var(--card-border);
+      flex-wrap: wrap;
+    }
+
+    .metric-btn {
+      padding: 0.3rem 0.65rem;
+      font-size: 0.74rem;
+      font-weight: 600;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-muted);
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .metric-btn:hover {
+      color: var(--text-main);
+    }
+
+    .metric-btn.active {
+      background: var(--cyan);
+      color: #000;
+      font-weight: 700;
+      box-shadow: 0 0 10px rgba(6, 182, 212, 0.3);
+    }
+
+    .chart-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+      padding: 0.55rem 0.75rem;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      margin-bottom: 0.85rem;
+    }
+
+    .chart-filters {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .legend-chip {
+      display: inline-flex;
       align-items: center;
       gap: 0.4rem;
+      padding: 0.25rem 0.55rem;
+      background: var(--box-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      font-size: 0.74rem;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s ease;
+    }
+
+    .legend-chip:hover {
+      border-color: var(--cyan);
+    }
+
+    .legend-chip input[type="checkbox"] {
+      accent-color: var(--cyan);
+      width: 14px;
+      height: 14px;
+      cursor: pointer;
+      margin: 0;
     }
 
     .legend-dot {
-      width: 10px;
-      height: 10px;
+      width: 9px;
+      height: 9px;
       border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .filter-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .filter-action-btn {
+      padding: 0.2rem 0.55rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--text-muted);
+      border: 1px solid var(--card-border);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .filter-action-btn:hover {
+      color: var(--cyan);
+      border-color: var(--cyan);
+    }
+
+    .chart-tooltip {
+      position: absolute;
+      pointer-events: none;
+      z-index: 100;
+      background: var(--modal-bg);
+      border: 1px solid var(--modal-border);
+      backdrop-filter: blur(12px);
+      border-radius: 10px;
+      padding: 0.65rem 0.85rem;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+      font-size: 0.78rem;
+      color: var(--text-main);
+      display: none;
+      min-width: 180px;
+      max-width: 320px;
+    }
+
+    .tooltip-header {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      margin-bottom: 0.45rem;
+      padding-bottom: 0.35rem;
+      border-bottom: 1px solid var(--card-border);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .tooltip-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 0.3rem;
+    }
+
+    .tooltip-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .tooltip-agent {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-weight: 600;
+    }
+
+    .tooltip-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
     }
 
     .hourly-grid {
@@ -982,12 +1153,38 @@
       </div>
 
       <!-- Burn-Down Velocity Chart -->
-      <div class="chart-box">
+      <div class="chart-box" id="analytics-chart-box">
         <div class="chart-box-header">
-          <div class="chart-box-title">⚡ 5-Hour Quota Utilization Burn-Down &amp; Velocity</div>
-          <div class="chart-legend" id="chart-legend"></div>
+          <div class="chart-box-title-group">
+            <div class="chart-box-title" id="chart-main-title">⚡ 5-Hour Quota Utilization Burn-Down &amp; Velocity</div>
+            <button class="zoom-reset-btn" id="btn-reset-zoom" onclick="resetChartZoom()" style="display: none;">🔍 Reset Zoom</button>
+          </div>
+          <div class="metric-selector" id="chart-metric-selector">
+            <button class="metric-btn active" data-metric="used_percent" onclick="setChartMetric('used_percent')">⚡ 5h Quota %</button>
+            <button class="metric-btn" data-metric="weekly_used_percent" onclick="setChartMetric('weekly_used_percent')">📅 Weekly %</button>
+            <button class="metric-btn" data-metric="time_remaining" onclick="setChartMetric('time_remaining')">⏳ Time Left</button>
+            <button class="metric-btn" data-metric="tokens" onclick="setChartMetric('tokens')">🪙 Est. Tokens</button>
+          </div>
         </div>
-        <div id="chart-container" style="position: relative; width: 100%; min-height: 200px;"></div>
+
+        <div class="chart-toolbar">
+          <div class="chart-filters" id="chart-legend">
+            <!-- Account filter checkboxes dynamically rendered here -->
+          </div>
+          <div class="filter-actions">
+            <button class="filter-action-btn" onclick="selectAllAgents(true)">All</button>
+            <button class="filter-action-btn" onclick="selectAllAgents(false)">None</button>
+          </div>
+        </div>
+
+        <div id="chart-container" style="position: relative; width: 100%; min-height: 220px;">
+          <div class="chart-tooltip" id="chart-tooltip"></div>
+        </div>
+
+        <div id="chart-footnote" style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.65rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+          <span>💡 <b>Interactive Controls:</b> Hover over chart to inspect data points • Click and drag horizontally to zoom • Double-click to reset zoom</span>
+          <span id="chart-metric-note"></span>
+        </div>
       </div>
 
       <!-- 24-Hour Activity Distribution Heatmap -->
@@ -1530,12 +1727,151 @@
       document.getElementById("ana-pokes").innerText = `${data.total_pokes} verified pokes`;
     }
 
+    // Historical Analytics & Burn-Down Logic
+    let currentHistoryData = [];
+    let currentChartMetric = localStorage.getItem('agent_quota_chart_metric') || 'used_percent';
+    let visibleAgentIds = null;
+    let chartZoom = null;
+    let currentAgentsMap = {};
+
+    const AGENT_CAPACITIES = {
+      antigravity: 100000,
+      codex: 250000,
+      personal: 45000,
+      work: 45000,
+      work2: 45000,
+      cursor: 100000,
+      copilot: 150000,
+      windsurf: 60000,
+      aider: 60000,
+      default: 50000
+    };
+
+    function getAgentTokenCapacity(agentId) {
+      const clean = (agentId || "").toLowerCase().replace("claude-", "");
+      return AGENT_CAPACITIES[clean] || AGENT_CAPACITIES.default;
+    }
+
+    const METRIC_CONFIG = {
+      used_percent: {
+        label: "5h Quota %",
+        title: "⚡ 5-Hour Quota Utilization Burn-Down &amp; Velocity",
+        getValue: (p) => p.used_percent,
+        formatValue: (v) => `${v.toFixed(1)}%`,
+        getMin: () => 0,
+        getMax: () => 100,
+        getTicks: () => [0, 25, 50, 75, 100],
+        formatTick: (v) => `${v}%`,
+        note: "Showing % of 5-hour rolling threshold window consumed."
+      },
+      weekly_used_percent: {
+        label: "Weekly %",
+        title: "📅 Weekly Quota Utilization Burn-Down",
+        getValue: (p) => p.weekly_used_percent != null ? p.weekly_used_percent : 0,
+        formatValue: (v) => `${v.toFixed(1)}%`,
+        getMin: () => 0,
+        getMax: () => 100,
+        getTicks: () => [0, 25, 50, 75, 100],
+        formatTick: (v) => `${v}%`,
+        note: "Showing % of provider weekly allocation consumed."
+      },
+      time_remaining: {
+        label: "Time Left",
+        title: "⏳ Time Remaining in 5-Hour Active Window",
+        getValue: (p) => (p.time_remaining_seconds || 0) / 3600.0,
+        formatValue: (v) => {
+          const totalSec = Math.round(v * 3600);
+          const h = Math.floor(totalSec / 3600);
+          const m = Math.floor((totalSec % 3600) / 60);
+          return `${h}h ${m}m`;
+        },
+        getMin: () => 0,
+        getMax: () => 5.0,
+        getTicks: () => [0, 1.25, 2.5, 3.75, 5.0],
+        formatTick: (v) => `${v.toFixed(1)}h`,
+        note: "Remaining duration until the active 5-hour rolling window resets to 100%."
+      },
+      tokens: {
+        label: "Est. Tokens",
+        title: "🪙 Estimated 5-Hour Token Consumption Burn-Down",
+        getValue: (p) => {
+          const cap = getAgentTokenCapacity(p.agent_id);
+          return Math.round(((p.used_percent || 0) / 100.0) * cap);
+        },
+        formatValue: (v) => `${Math.round(v).toLocaleString()} tokens`,
+        getMin: () => 0,
+        getMax: (pts) => {
+          let maxVal = 0;
+          pts.forEach(p => {
+            const v = METRIC_CONFIG.tokens.getValue(p);
+            if (v > maxVal) maxVal = v;
+          });
+          return Math.max(50000, Math.ceil(maxVal / 50000) * 50000);
+        },
+        getTicks: (maxVal) => [0, maxVal * 0.25, maxVal * 0.5, maxVal * 0.75, maxVal],
+        formatTick: (v) => v >= 1000 ? `${Math.round(v / 1000)}k` : `${v}`,
+        note: "🪙 Token counts estimated from standard plan tiers (Claude ~45k, Codex ~250k, Antigravity ~100k)."
+      }
+    };
+
+    function setChartMetric(metric) {
+      if (!METRIC_CONFIG[metric]) return;
+      currentChartMetric = metric;
+      localStorage.setItem('agent_quota_chart_metric', metric);
+      document.querySelectorAll('.metric-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-metric') === metric);
+      });
+      renderBurndownChart(currentHistoryData);
+    }
+
+    function toggleAgentFilter(agentId) {
+      if (!visibleAgentIds) return;
+      if (visibleAgentIds.has(agentId)) {
+        visibleAgentIds.delete(agentId);
+      } else {
+        visibleAgentIds.add(agentId);
+      }
+      localStorage.setItem('agent_quota_visible_agents', JSON.stringify(Array.from(visibleAgentIds)));
+      renderBurndownChart(currentHistoryData);
+    }
+
+    function selectAllAgents(select) {
+      if (!visibleAgentIds) visibleAgentIds = new Set();
+      const allIds = Object.keys(currentAgentsMap || {});
+      if (select) {
+        allIds.forEach(id => visibleAgentIds.add(id));
+      } else {
+        visibleAgentIds.clear();
+      }
+      localStorage.setItem('agent_quota_visible_agents', JSON.stringify(Array.from(visibleAgentIds)));
+      renderBurndownChart(currentHistoryData);
+    }
+
+    function resetChartZoom() {
+      chartZoom = null;
+      renderBurndownChart(currentHistoryData);
+    }
+
     function renderBurndownChart(history) {
+      currentHistoryData = history || [];
       const container = document.getElementById("chart-container");
       const legend = document.getElementById("chart-legend");
+      const titleEl = document.getElementById("chart-main-title");
+      const noteEl = document.getElementById("chart-metric-note");
+      const resetBtn = document.getElementById("btn-reset-zoom");
+
+      const metricConf = METRIC_CONFIG[currentChartMetric] || METRIC_CONFIG.used_percent;
+      if (titleEl) titleEl.innerHTML = metricConf.title;
+      if (noteEl) noteEl.innerText = metricConf.note;
+      if (resetBtn) resetBtn.style.display = chartZoom ? "inline-flex" : "none";
+
+      document.querySelectorAll('.metric-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-metric') === currentChartMetric);
+      });
+
       legend.innerHTML = "";
 
-      if (!history || history.length === 0) {
+      if (!currentHistoryData || currentHistoryData.length === 0) {
         container.innerHTML = `
           <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 180px; color: var(--text-muted); font-size: 0.85rem;">
             <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">📈</div>
@@ -1546,75 +1882,313 @@
         return;
       }
 
-      const byAgent = {};
-      const agentNames = {};
-      let minTs = Infinity;
-      let maxTs = -Infinity;
+      currentAgentsMap = {};
+      const allFoundIds = [];
+      let dataMinTs = Infinity;
+      let dataMaxTs = -Infinity;
 
-      history.forEach(pt => {
+      currentHistoryData.forEach(pt => {
         const aid = pt.agent_id;
-        if (!byAgent[aid]) byAgent[aid] = [];
-        byAgent[aid].push(pt);
-        agentNames[aid] = pt.agent_name || aid;
-        if (pt.timestamp < minTs) minTs = pt.timestamp;
-        if (pt.timestamp > maxTs) maxTs = pt.timestamp;
+        if (!currentAgentsMap[aid]) {
+          currentAgentsMap[aid] = pt.agent_name || aid;
+          allFoundIds.push(aid);
+        }
+        if (pt.timestamp < dataMinTs) dataMinTs = pt.timestamp;
+        if (pt.timestamp > dataMaxTs) dataMaxTs = pt.timestamp;
       });
 
-      if (minTs === maxTs) {
-        minTs = maxTs - 3600;
+      if (dataMinTs === dataMaxTs) {
+        dataMinTs = dataMaxTs - 3600;
       }
 
-      Object.keys(byAgent).forEach(aid => {
+      if (visibleAgentIds === null) {
+        const saved = localStorage.getItem('agent_quota_visible_agents');
+        if (saved) {
+          try {
+            visibleAgentIds = new Set(JSON.parse(saved));
+          } catch (e) {
+            visibleAgentIds = new Set(allFoundIds);
+          }
+        } else {
+          visibleAgentIds = new Set(allFoundIds);
+        }
+      }
+
+      allFoundIds.forEach(aid => {
         const color = getAgentColor(aid);
-        const item = document.createElement("div");
-        item.className = "legend-item";
-        item.innerHTML = `<span class="legend-dot" style="background: ${color};"></span><span>${agentNames[aid]}</span>`;
-        legend.appendChild(item);
+        const isChecked = visibleAgentIds.has(aid);
+        const chip = document.createElement("label");
+        chip.className = "legend-chip";
+        chip.title = `Toggle ${currentAgentsMap[aid]} line in chart`;
+        chip.innerHTML = `
+          <input type="checkbox" ${isChecked ? "checked" : ""} onchange="toggleAgentFilter('${aid}')" />
+          <span class="legend-dot" style="background: ${color};"></span>
+          <span>${currentAgentsMap[aid]}</span>
+        `;
+        legend.appendChild(chip);
+      });
+
+      const visiblePoints = currentHistoryData.filter(p => visibleAgentIds.has(p.agent_id));
+
+      if (visiblePoints.length === 0) {
+        container.innerHTML = `
+          <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 180px; color: var(--text-muted); font-size: 0.85rem;">
+            <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">🔍</div>
+            <div>All accounts deselected. Check one or more accounts above to view quota metrics.</div>
+          </div>
+        `;
+        return;
+      }
+
+      let minTs = dataMinTs;
+      let maxTs = dataMaxTs;
+      if (chartZoom) {
+        minTs = Math.max(dataMinTs, chartZoom.minTs);
+        maxTs = Math.min(dataMaxTs, chartZoom.maxTs);
+        if (maxTs - minTs < 60) maxTs = minTs + 60;
+      }
+
+      const byAgent = {};
+      visiblePoints.forEach(pt => {
+        if (pt.timestamp >= minTs && pt.timestamp <= maxTs) {
+          const aid = pt.agent_id;
+          if (!byAgent[aid]) byAgent[aid] = [];
+          byAgent[aid].push(pt);
+        }
       });
 
       const svgWidth = 860;
       const svgHeight = 220;
       const padLeft = 45;
-      const padRight = 20;
+      const padRight = 25;
       const padTop = 20;
       const padBottom = 30;
       const chartW = svgWidth - padLeft - padRight;
       const chartH = svgHeight - padTop - padBottom;
 
+      const minY = metricConf.getMin(visiblePoints);
+      const maxY = metricConf.getMax(visiblePoints);
+      const ticks = metricConf.getTicks(maxY);
+
       const scaleX = (ts) => padLeft + ((ts - minTs) / (maxTs - minTs)) * chartW;
-      const scaleY = (pct) => padTop + chartH - (pct / 100.0) * chartH;
+      const scaleY = (val) => padTop + chartH - ((val - minY) / (maxY - minY || 1)) * chartH;
 
-      let svg = `<svg viewBox="0 0 ${svgWidth} ${svgHeight}" class="chart-svg" style="width: 100%; height: auto;">`;
+      let svg = `
+        <div class="chart-tooltip" id="chart-tooltip"></div>
+        <svg viewBox="0 0 ${svgWidth} ${svgHeight}" class="chart-svg" style="width: 100%; height: auto; user-select: none;">
+      `;
 
-      [0, 25, 50, 75, 100].forEach(level => {
+      ticks.forEach(level => {
         const y = scaleY(level);
         svg += `<line x1="${padLeft}" y1="${y}" x2="${svgWidth - padRight}" y2="${y}" stroke="currentColor" stroke-opacity="0.08" stroke-dasharray="3,3" />`;
-        svg += `<text x="${padLeft - 8}" y="${y + 4}" fill="currentColor" opacity="0.4" font-size="10" font-family="'JetBrains Mono', monospace" text-anchor="end">${level}%</text>`;
+        svg += `<text x="${padLeft - 8}" y="${y + 4}" fill="currentColor" opacity="0.45" font-size="10" font-family="'JetBrains Mono', monospace" text-anchor="end">${metricConf.formatTick(level)}</text>`;
       });
 
       const startStr = new Date(minTs * 1000).toLocaleDateString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
       const endStr = new Date(maxTs * 1000).toLocaleDateString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-      svg += `<text x="${padLeft}" y="${svgHeight - 8}" fill="currentColor" opacity="0.4" font-size="10" font-family="'JetBrains Mono', monospace">${startStr}</text>`;
-      svg += `<text x="${svgWidth - padRight}" y="${svgHeight - 8}" fill="currentColor" opacity="0.4" font-size="10" font-family="'JetBrains Mono', monospace" text-anchor="end">${endStr}</text>`;
+      svg += `<text x="${padLeft}" y="${svgHeight - 8}" fill="currentColor" opacity="0.45" font-size="10" font-family="'JetBrains Mono', monospace">${startStr}</text>`;
+      svg += `<text x="${svgWidth - padRight}" y="${svgHeight - 8}" fill="currentColor" opacity="0.45" font-size="10" font-family="'JetBrains Mono', monospace" text-anchor="end">${endStr}</text>`;
 
       Object.entries(byAgent).forEach(([aid, pts]) => {
+        if (pts.length === 0) return;
         const color = getAgentColor(aid);
-        const polyPoints = pts.map(p => `${scaleX(p.timestamp).toFixed(1)},${scaleY(p.used_percent).toFixed(1)}`).join(" ");
+        const polyPoints = pts.map(p => {
+          const v = metricConf.getValue(p);
+          return `${scaleX(p.timestamp).toFixed(1)},${scaleY(v).toFixed(1)}`;
+        }).join(" ");
 
         svg += `<polyline points="${polyPoints}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.85" />`;
 
         pts.forEach(p => {
+          const v = metricConf.getValue(p);
           const cx = scaleX(p.timestamp).toFixed(1);
-          const cy = scaleY(p.used_percent).toFixed(1);
-          const dStr = new Date(p.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          svg += `<circle cx="${cx}" cy="${cy}" r="3" fill="${color}">
-            <title>${agentNames[aid]}: ${p.used_percent}% used at ${dStr} (${p.is_active ? 'Active' : 'Inactive'})</title>
-          </circle>`;
+          const cy = scaleY(v).toFixed(1);
+          svg += `<circle cx="${cx}" cy="${cy}" r="3" fill="${color}" stroke="var(--card-bg)" stroke-width="1" class="chart-point" data-aid="${aid}" data-ts="${p.timestamp}" />`;
         });
       });
 
+      svg += `
+        <line id="chart-crosshair" x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${padTop + chartH}" stroke="var(--cyan)" stroke-width="1.5" stroke-dasharray="3,3" style="opacity: 0; pointer-events: none; transition: opacity 0.1s ease;" />
+        <rect id="chart-drag-box" x="${padLeft}" y="${padTop}" width="0" height="${chartH}" fill="rgba(6, 182, 212, 0.15)" stroke="var(--cyan)" stroke-width="1.5" stroke-dasharray="4,2" style="display: none; pointer-events: none;" />
+        <g id="chart-halos" pointer-events="none"></g>
+        <rect id="chart-overlay" x="${padLeft}" y="${padTop}" width="${chartW}" height="${chartH}" fill="transparent" style="cursor: crosshair;" />
+      `;
+
       svg += `</svg>`;
       container.innerHTML = svg;
+
+      attachChartInteractiveEvents(container, visiblePoints, minTs, maxTs, padLeft, chartW, chartH, scaleX, scaleY, metricConf);
+    }
+
+    function attachChartInteractiveEvents(container, visiblePoints, minTs, maxTs, padLeft, chartW, chartH, scaleX, scaleY, metricConf) {
+      const overlay = container.querySelector("#chart-overlay");
+      const crosshair = container.querySelector("#chart-crosshair");
+      const dragBox = container.querySelector("#chart-drag-box");
+      const halos = container.querySelector("#chart-halos");
+      const tooltip = container.querySelector("#chart-tooltip");
+      if (!overlay || !crosshair || !dragBox || !tooltip) return;
+
+      let isDragging = false;
+      let dragStartSvgX = null;
+      let lastSvgX = null;
+
+      function getSvgX(e) {
+        const rect = overlay.getBoundingClientRect();
+        const clientX = e.clientX - rect.left;
+        const boundedX = Math.max(0, Math.min(clientX, rect.width));
+        return padLeft + (boundedX / rect.width) * chartW;
+      }
+
+      overlay.addEventListener("mousemove", (e) => {
+        const svgX = getSvgX(e);
+        lastSvgX = svgX;
+
+        crosshair.setAttribute("x1", svgX.toFixed(1));
+        crosshair.setAttribute("x2", svgX.toFixed(1));
+        crosshair.style.opacity = "0.75";
+
+        if (isDragging) {
+          const boxX = Math.min(dragStartSvgX, svgX);
+          const boxW = Math.abs(svgX - dragStartSvgX);
+          dragBox.setAttribute("x", boxX.toFixed(1));
+          dragBox.setAttribute("width", boxW.toFixed(1));
+          dragBox.style.display = "block";
+          tooltip.style.display = "none";
+          halos.innerHTML = "";
+          return;
+        }
+
+        const cursorTs = minTs + ((svgX - padLeft) / chartW) * (maxTs - minTs);
+
+        let closestTs = null;
+        let minDiff = Infinity;
+        visiblePoints.forEach(p => {
+          const diff = Math.abs(p.timestamp - cursorTs);
+          if (diff < minDiff) {
+            minDiff = diff;
+            closestTs = p.timestamp;
+          }
+        });
+
+        if (closestTs === null || minDiff > 12 * 3600) {
+          tooltip.style.display = "none";
+          halos.innerHTML = "";
+          return;
+        }
+
+        const matchedPoints = [];
+        const seenAid = new Set();
+        visiblePoints.forEach(p => {
+          if (Math.abs(p.timestamp - closestTs) <= 180 && !seenAid.has(p.agent_id)) {
+            matchedPoints.push(p);
+            seenAid.add(p.agent_id);
+          }
+        });
+
+        let halosSvg = "";
+        let rowsHtml = "";
+
+        matchedPoints.forEach(p => {
+          const aid = p.agent_id;
+          const color = getAgentColor(aid);
+          const val = metricConf.getValue(p);
+          const cx = scaleX(p.timestamp).toFixed(1);
+          const cy = scaleY(val).toFixed(1);
+
+          halosSvg += `
+            <circle cx="${cx}" cy="${cy}" r="6" fill="${color}" stroke="#ffffff" stroke-width="2" opacity="0.95" />
+          `;
+
+          const activeColor = p.is_active ? "var(--emerald)" : "var(--text-muted)";
+          const activeLabel = p.is_active ? "Active" : "Idle";
+
+          rowsHtml += `
+            <div class="tooltip-row">
+              <div class="tooltip-agent">
+                <span class="legend-dot" style="background: ${color};"></span>
+                <span>${currentAgentsMap[aid] || aid}</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span class="tooltip-val">${metricConf.formatValue(val)}</span>
+                <span style="font-size: 0.68rem; color: ${activeColor}; font-weight: 700;">● ${activeLabel}</span>
+              </div>
+            </div>
+          `;
+        });
+
+        halos.innerHTML = halosSvg;
+
+        const dateStr = new Date(closestTs * 1000).toLocaleString([], {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+
+        tooltip.innerHTML = `
+          <div class="tooltip-header">📅 ${dateStr}</div>
+          <div style="display: flex; flex-direction: column;">${rowsHtml}</div>
+        `;
+
+        tooltip.style.display = "block";
+        const cRect = container.getBoundingClientRect();
+        let tipLeft = e.clientX - cRect.left + 16;
+        let tipTop = e.clientY - cRect.top - 12;
+
+        if (tipLeft + tooltip.offsetWidth > cRect.width - 12) {
+          tipLeft = e.clientX - cRect.left - tooltip.offsetWidth - 16;
+        }
+        if (tipTop < 10) tipTop = 10;
+        if (tipTop + tooltip.offsetHeight > cRect.height - 10) {
+          tipTop = Math.max(10, cRect.height - tooltip.offsetHeight - 10);
+        }
+
+        tooltip.style.left = `${tipLeft}px`;
+        tooltip.style.top = `${tipTop}px`;
+      });
+
+      overlay.addEventListener("mouseleave", () => {
+        if (!isDragging) {
+          crosshair.style.opacity = "0";
+          halos.innerHTML = "";
+          tooltip.style.display = "none";
+        }
+      });
+
+      overlay.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        isDragging = true;
+        dragStartSvgX = getSvgX(e);
+        dragBox.setAttribute("x", dragStartSvgX.toFixed(1));
+        dragBox.setAttribute("width", "0");
+        dragBox.style.display = "block";
+        tooltip.style.display = "none";
+      });
+
+      window.addEventListener("mouseup", () => {
+        if (!isDragging) return;
+        isDragging = false;
+        dragBox.style.display = "none";
+
+        if (lastSvgX !== null && dragStartSvgX !== null) {
+          const width = Math.abs(lastSvgX - dragStartSvgX);
+          if (width > 15) {
+            const minX = Math.min(dragStartSvgX, lastSvgX);
+            const maxX = Math.max(dragStartSvgX, lastSvgX);
+            const zMin = minTs + ((minX - padLeft) / chartW) * (maxTs - minTs);
+            const zMax = minTs + ((maxX - padLeft) / chartW) * (maxTs - minTs);
+            if (zMax - zMin > 60) {
+              chartZoom = { minTs: zMin, maxTs: zMax };
+              renderBurndownChart(currentHistoryData);
+            }
+          }
+        }
+        dragStartSvgX = null;
+      });
+
+      overlay.addEventListener("dblclick", () => {
+        resetChartZoom();
+      });
     }
 
     function renderHourlyDistribution(hourlyActivity, peakHours = []) {

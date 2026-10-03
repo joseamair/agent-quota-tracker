@@ -7,7 +7,7 @@ Welcome, incoming AI Coding Agent! This document gives you immediate, end-to-end
 ## 📌 Executive Summary
 
 - **Repository**: [`agent-quota-tracker`](https://github.com/joseamair/agent-quota-tracker)
-- **Current Version**: `v1.1.0` (Released 2026-09-25)
+- **Current Version**: `v1.2.0` (Released 2026-10-03)
 - **Repository Visibility**: Public GitHub Template repository
 - **Primary Goal**: High-performance local CLI monitor, autonomous watchdog daemon, and glassmorphism web dashboard tracking 5-hour rolling threshold windows and weekly quotas across AI coding agents (Claude via CCS & official CLI, OpenAI Codex, and Google Antigravity).
 
@@ -106,6 +106,7 @@ Write-Host "All PowerShell scripts validate cleanly!"
   - *Integration*: Future `agents traffic` CLI view and Web Dashboard visitor traffic widget.
 
 ### Recently Delivered
+- [**#41**](https://github.com/joseamair/agent-quota-tracker/issues/41) / [**#40**](https://github.com/joseamair/agent-quota-tracker/pull/40) - **Interactive Web Dashboard Charts (Hover Tooltips, Multi-Metric Selector, Account Checkboxes, Drag Zoom)**: Enhanced historical burn-down chart with vertical crosshair scrubbing, point halos, glassmorphic floating tooltips, 4-way metric selection (5h %, weekly %, time remaining, estimated tokens computed from tier capacity), dynamic per-account legend checkboxes with `localStorage` persistence, and horizontal timeline box drag-to-zoom with reset button. Full Tri-Engine Parity.
 - [**#37**](https://github.com/joseamair/agent-quota-tracker/pull/37) - **Historical Poke & Activity Backfill Importer**: Multi-source scanner parsing legacy `~/.agent_quota_tracker/schedule.log` and `~/.agents_dashboard/state.json`. Safe, zero-duplicate ingestion into SQLite `history.db` (`pokes` and `snapshots`), immediately backfilling past weeks of usage trends and diurnal peak hours. Added `agents --backfill`, `python agents.py --backfill`, `agents_native.ps1 -Backfill`, and interactive `📥 Backfill` button on Web Dashboard.
 - [**#23**](https://github.com/joseamair/agent-quota-tracker/issues/23) - **Local SQLite Historical Analytics & Burndown Charts**: Embedded SQLite timeseries database under `~/.agent_quota_tracker/history.db` storing quota snapshots and poke records with 60s deduplication. Added `agents --analytics`, `--insights`, and `agents analytics [--days N]` displaying active time ratio, top 3 peak hours, optimal morning priming recommendation, and 24-hour diurnal distribution. Embedded interactive SVG 7-day velocity burn-down chart, 24-hour activity bars, and period selector (24h, 3d, 7d, 14d) in Web Dashboard with `/api/history` and `/api/analytics` endpoints. Full Tri-Engine Parity.
 - [**#21**](https://github.com/joseamair/agent-quota-tracker/issues/21) - **Additional Agent Trackers (Cursor, Windsurf, Copilot, Aider - Beta)**: Modular implementations for Cursor (SQLite token discovery + `api2.cursor.sh`), Windsurf (`~/.codeium/config.json` + `api.codeium.com`), GitHub Copilot (`gh auth token` + Copilot token API), and Aider (`OPENROUTER_API_KEY` + OpenRouter balance API). Open call for community validation. Full Tri-Engine Parity.

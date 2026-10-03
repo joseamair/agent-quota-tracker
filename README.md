@@ -544,6 +544,18 @@ Provider credentials and configurations are mapped automatically from your stand
 
 ## 🗺️ Project Roadmap
 
+### 🚀 Delivered in v1.2.0
+- [x] **Interactive Web Dashboard Charts & Inspection Controls** ([#41](https://github.com/joseamair/agent-quota-tracker/issues/41), [#40](https://github.com/joseamair/agent-quota-tracker/pull/40)): Crosshair scrubbing, point halos, floating tooltips, 4-metric selection (5h %, weekly %, time left, tokens), per-account filter checkboxes with `localStorage` persistence, and timeline box drag-to-zoom with reset button.
+- [x] **Web Dashboard v2 with Live SSE Push Updates & Interactive Controls** ([#24](https://github.com/joseamair/agent-quota-tracker/issues/24)): Server-Sent Events (SSE) `/api/stream` updates, per-card "⚡ Poke" & "⚡ Force Poke" buttons, in-browser morning priming configuration modal (`/api/schedule`), and 3 themes (Dark, OLED, Light).
+- [x] **Local SQLite Historical Analytics & Quota Velocity Burn-Down Charts** ([#23](https://github.com/joseamair/agent-quota-tracker/issues/23)): Embedded timeseries database (`history.db`), peak-hour detection, optimal morning priming calculation, CLI `--analytics` (`--insights`), and interactive 7-day SVG burndown and 24h diurnal heatmap charts.
+- [x] **Historical Poke & Activity Backfill Importer** ([#37](https://github.com/joseamair/agent-quota-tracker/pull/37)): Multi-source scanner parsing legacy logs into SQLite `history.db` (`agents --backfill`, dashboard `📥 Backfill`).
+- [x] **Autonomous Continuous Auto-Checker Loop (`agents auto`, `--auto-poke`)** ([#31](https://github.com/joseamair/agent-quota-tracker/issues/31)): Hands-free loop checking status, waiting for earliest window reset, priming idle accounts, and running a live ticking terminal countdown.
+- [x] **Native Desktop Toast Notifications (`--notify`, `--test-notify`)** ([#20](https://github.com/joseamair/agent-quota-tracker/issues/20)): Zero-dependency native notifications for Windows, macOS, and Linux on poke events, cooldowns, and schedules.
+- [x] **OS-Level Scheduled Morning Priming Task Generator (`--schedule-install`)** ([#22](https://github.com/joseamair/agent-quota-tracker/issues/22)): Windows Task Scheduler, Linux crontab, and macOS launchd background task generator operating safely in user space.
+- [x] **Shell Prompt & Status Bar Integration (`--prompt`, `--prompt-format`)** ([#25](https://github.com/joseamair/agent-quota-tracker/issues/25)): Fast cached status segments for Starship, Oh-My-Posh, tmux, and PowerShell `$PROFILE`.
+- [x] **Additional AI Agent Trackers (Beta)** ([#21](https://github.com/joseamair/agent-quota-tracker/issues/21)): Modular trackers for Cursor, Windsurf, GitHub Copilot CLI, and Aider/OpenRouter.
+- [x] **Weekly Quota Exhaustion Guard & Sliding Window Ceiling Fix** ([#29](https://github.com/joseamair/agent-quota-tracker/issues/29)): Accurate 5h idle detection and safety guard skipping accounts with $\ge 100\%$ weekly usage unless `--force`.
+
 ### 🚀 Delivered in v1.1.0
 - [x] **Automated Poke Watchdog Mode (`--poke-watch`)** ([#18](https://github.com/joseamair/agent-quota-tracker/issues/18)): Autonomous daemon with dynamic adaptive cooling engine based on earliest expiring active window.
 - [x] **Scheduled Target-Time Poke (`--poke-at`)** ([#19](https://github.com/joseamair/agent-quota-tracker/issues/19)): Strategic morning priming with automatic overnight clock rollover.
@@ -551,19 +563,10 @@ Provider credentials and configurations are mapped automatically from your stand
 - [x] **AGY & Codex False-Positive Quota Fixes** ([#16](https://github.com/joseamair/agent-quota-tracker/issues/16)): Strict idle window verification for sliding prospective timestamps.
 - [x] **Official Claude CLI Support**: Native single-account discovery and fallback to official Anthropic `claude` CLI.
 
-### 🔭 Active Development Roadmap (v1.2.0 & Beyond)
-- [ ] **Native Desktop Toast Notifications & System Tray Indicator** ([#20](https://github.com/joseamair/agent-quota-tracker/issues/20)):
-  Cross-platform desktop notifications (Windows Action Center, macOS, Linux `notify-send`) on 5h window cooldown, morning priming completion, and persistent tray status icon.
-- [ ] **Additional AI Agent Trackers** ([#21](https://github.com/joseamair/agent-quota-tracker/issues/21)):
-  Extend modular trackers to support Cursor (fast requests/billing reset), Windsurf/Cascade (credits), GitHub Copilot CLI (rate limits), and Aider/OpenRouter (balance).
-- [ ] **OS-Level Automated Morning Priming (`--schedule-install`)** ([#22](https://github.com/joseamair/agent-quota-tracker/issues/22)):
-  Native Windows Task Scheduler / Linux systemd / macOS launchd generator to execute morning priming persistently without keeping a terminal open.
-- [ ] **Local SQLite Historical Analytics & Quota Velocity Charts** ([#23](https://github.com/joseamair/agent-quota-tracker/issues/23)):
-  Embedded timeseries logging (`history.db`) to record burn rate patterns, peak usage hours, and 7-day burndown visualizations.
-- [ ] **Web Dashboard v2 (Live Push & Interactive Controls)** ([#24](https://github.com/joseamair/agent-quota-tracker/issues/24)):
-  Server-Sent Events (SSE) live push updates, per-agent poke buttons, in-browser target-time scheduler, and OLED/Dark/Light theme switcher.
-- [ ] **Shell Prompt & Status Bar Integration (`--prompt-format`)** ([#25](https://github.com/joseamair/agent-quota-tracker/issues/25)):
-  Ultra-fast sub-10ms cached status segments for Starship prompt, Oh-My-Posh, tmux status lines, and PowerShell `$PROFILE`.
+### 🔭 Future Roadmap (v1.3.0 & Beyond)
+- [ ] **Track Repository Visitor Traffic and Views using Free GitHub Native APIs & Actions** ([#36](https://github.com/joseamair/agent-quota-tracker/issues/36)): Scheduled GitHub Action querying Traffic API with cumulative timeseries storage and `agents traffic` CLI / Dashboard widget.
+- [ ] **Proactive Token Expiration & Auth Health Guard**: Desktop notification and `⚠️ EXPIRED` badge when OAuth tokens expire.
+- [ ] **Webhook Alerts (Discord / Slack / Telegram)**: Remote notifications for headless servers and homelabs on morning priming and weekly quota thresholds.
 
 ---
 

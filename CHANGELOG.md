@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-03
+
+### Added
+- **Interactive Web Dashboard Burn-Down Chart & Visualization Controls** ([#41](https://github.com/joseamair/agent-quota-tracker/issues/41), [#40](https://github.com/joseamair/agent-quota-tracker/pull/40)):
+  - **Hover Inspection & Crosshair Tracking**: Vertical dashed crosshair scrub line projecting mouse position onto the timeline with dynamic point halos highlighting active data points.
+  - **Glassmorphic Floating Tooltip**: Real-time tooltip card showing formatted timestamps, account color dots, names, exact metrics, and active/idle state badges with automatic viewport collision detection.
+  - **Multi-Metric Selection**: Seamless segmented controls to toggle between 5-Hour Quota % (`used_percent`), Weekly Quota % (`weekly_used_percent`), Time Left in Window (`time_remaining`), and Estimated Tokens (`tokens`) computed from provider capacity tiers (Claude ~45k, Codex ~250k, Antigravity ~100k, Cursor ~100k, Copilot ~150k) with formatted thousands and `k`-scaled Y-axis ticks.
+  - **Account Filter Checkboxes**: Interactive chip checkboxes in chart toolbar for every account (default all checked) with `[All]` and `[None]` quick toggles and persistent selection in `localStorage`.
+  - **Timeline Drag Zoom & Reset**: Click-and-drag horizontal box zoom to inspect specific time windows with recalibrated X-axis timestamps, double-click reset, and a `[🔍 Reset Zoom]` button.
+  - Full Tri-Engine Parity across modular Python package (`src/agent_quota_tracker/dashboard.py`), standalone runner (`agents.py`), static export (`dashboard.html`), and PowerShell (`agents_native.ps1`).
+
 ### Fixed
 - **Accurate 5-Hour Idle Threshold (Sliding Window Ceiling Fix)** ([#29](https://github.com/joseamair/agent-quota-tracker/issues/29)):
   - Fixed false-inactive bug in `ClaudeTracker` and `AGYTracker` where accounts with `0.0%` token utilization were unconditionally treated as `○ INACTIVE / Ready to Poke`, even when counting down inside an active window with remaining time (e.g. 18 minutes left).

@@ -286,6 +286,60 @@ def test_run_auto_checker_loop_keyboard_interrupt(monkeypatch):
     run_auto_checker_loop(max_cycles=1)
 
 
+def test_auto_checker_parser_refresh_interval():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--auto", action="store_true")
+    parser.add_argument("--refresh-interval", type=int, default=15)
+
+    args = parser.parse_args(["--auto", "--refresh-interval", "30"])
+    assert args.auto is True
+    assert args.refresh_interval == 30
+
+
+def test_run_auto_checker_live_detects_early_idle(monkeypatch):
+    from unittest.mock import MagicMock
+    import time
+    from agent_quota_tracker.cli import run_auto_checker_live
+    from agent_quota_tracker.models import AgentStatus
+
+    active_status = AgentStatus(
+        id="codex",
+        name="OpenAI Codex",
+        provider="codex",
+        is_active=True,
+        used_percent=10.0,
+        time_remaining_seconds=100,
+        time_remaining_str="1m 40s",
+    )
+    idle_status = AgentStatus(
+        id="codex",
+        name="OpenAI Codex",
+        provider="codex",
+        is_active=False,
+        used_percent=0.0,
+        time_remaining_seconds=0,
+        time_remaining_str="Ready to Poke",
+    )
+
+    # First fetch returns idle_status immediately
+    mock_get_all = MagicMock(return_value=[idle_status])
+    monkeypatch.setattr("agent_quota_tracker.cli.get_all_statuses", mock_get_all)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+
+    # When refresh_interval=0, it triggers immediately and returns True on early idle
+    result = run_auto_checker_live(
+        total_seconds=100,
+        wake_time="14:00:00",
+        reason="Codex (1m left)",
+        statuses=[active_status],
+        force=False,
+        refresh_interval=0,
+    )
+    assert result is True
+
+
+
 def test_print_status_table_with_provided_statuses(monkeypatch):
     from unittest.mock import MagicMock
     from agent_quota_tracker.cli import print_status_table
@@ -364,6 +418,44 @@ def test_run_countdown_basic(monkeypatch):
     val = out.getvalue()
     assert "Testing" in val
     assert "\n" in val
+
+
+def test_agents_standalone_run_auto_checker_live(monkeypatch):
+    from unittest.mock import MagicMock
+    import agents
+
+    active_agent = agents.AgentInfo(
+        id="codex",
+        name="Codex",
+        provider="codex",
+        is_active=True,
+        used_percent=10.0,
+        time_remaining_seconds=50,
+        weekly_used_percent=20.0,
+    )
+    idle_agent = agents.AgentInfo(
+        id="codex",
+        name="Codex",
+        provider="codex",
+        is_active=False,
+        used_percent=0.0,
+        time_remaining_seconds=0,
+        weekly_used_percent=20.0,
+    )
+
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    monkeypatch.setattr(agents, "fetch_all_statuses", MagicMock(return_value=[idle_agent]))
+
+    res = agents.run_auto_checker_live(
+        total_seconds=50,
+        wake_time="14:00:00",
+        reason="Codex",
+        statuses=[active_agent],
+        force=False,
+        refresh_interval=0,
+    )
+    assert res is True
+
 
 
 

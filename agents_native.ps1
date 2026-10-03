@@ -73,6 +73,9 @@ param(
     [Alias("backfill-history")]
     [switch]$Backfill,
 
+    [Alias("ri")]
+    [int]$RefreshInterval = 15,
+
     [Alias("h", "?")]
     [switch]$Help
 )
@@ -93,6 +96,7 @@ OPTIONS:
   -Auto, -auto           Start continuous autonomous auto-checker loop: checks status, waits for
                          earliest window reset, primes, and repeats until stopped.
   -AutoPoke              Alias for -Auto.
+  -RefreshInterval, -ri  Live quota status refresh interval in seconds for auto-checker loop (default: 15s).
   -Analytics, -insights  Display quota consumption velocity, peak hours, and optimal priming analytics.
   -Days <int>            Number of days to analyze for analytics (default: 7).
   -Backfill              Backfill past poke history from legacy logs into SQLite database.
@@ -920,6 +924,128 @@ function Start-Countdown($totalSecs, $prefix) {
     Write-Host ""
 }
 
+function Start-AutoCheckerLive {
+    param(
+        [int]$TotalSeconds,
+        [string]$WakeTime,
+        [string]$Reason,
+        [array]$CurrentData,
+        [bool]$ForceMode = $false,
+        [string]$AgentFilter = "",
+        [int]$RefreshSecs = 15
+    )
+
+    $rawWidth = 100
+    try {
+        if ($Host -and $Host.UI -and $Host.UI.RawUI) {
+            $rawWidth = $Host.UI.RawUI.WindowSize.Width
+        }
+    } catch {}
+    if (-not $rawWidth -or $rawWidth -lt 40) { $rawWidth = 100 }
+    $maxLen = [math]::Max(40, $rawWidth - 2)
+
+    $targetDt = (Get-Date).AddSeconds($TotalSeconds)
+    $lastApiFetch = [DateTime]::UtcNow
+    $curWake = $WakeTime
+    $curReason = $Reason
+    $data = $CurrentData
+    $rem = $TotalSeconds
+
+    while ($rem -gt 0) {
+        Start-Sleep -Seconds 1
+        $rem = [math]::Max(0, [int]($targetDt - (Get-Date)).TotalSeconds)
+
+        # Tick local active countdowns
+        foreach ($item in $data) {
+            if ($item.IsActive -and $item.RemainingSeconds -gt 0) {
+                $item.RemainingSeconds = [math]::Max(0, $item.RemainingSeconds - 1)
+                $h = [math]::Floor($item.RemainingSeconds / 3600)
+                $m = [math]::Floor(($item.RemainingSeconds % 3600) / 60)
+                if ($h -gt 0) { $item.Remaining = "${h}h ${m}m" } else { $item.Remaining = "${m}m" }
+            }
+        }
+
+        $nowUtc = [DateTime]::UtcNow
+        if (($nowUtc - $lastApiFetch).TotalSeconds -ge $RefreshSecs) {
+            try {
+                $fresh = Get-AgentData
+                if ($AgentFilter) {
+                    $tf = $AgentFilter.ToLower()
+                    $fresh = $fresh | Where-Object { $_.Id -eq $tf -or $_.Id -eq "claude-$tf" }
+                }
+                $data = $fresh
+                $lastApiFetch = $nowUtc
+
+                # Check for early idle
+                $earlyIdle = @()
+                foreach ($item in $data) {
+                    $wkDbl = $null
+                    if ($item.WkUsage -and $item.WkUsage -ne "-" -and $item.WkUsage -match "(\d+(\.\d+)?)") {
+                        $wkDbl = [double]$matches[1]
+                    }
+                    $isExhausted = ($wkDbl -ne $null -and $wkDbl -ge 100.0)
+                    if (-not $item.IsActive -and ($ForceMode -or -not $isExhausted)) {
+                        $earlyIdle += $item
+                    }
+                }
+                if ($earlyIdle.Count -gt 0) {
+                    Write-Host ""
+                    return $true
+                }
+
+                # Recompute earliest expiration
+                $activeWithRem = @()
+                foreach ($item in $data) {
+                    $wkDbl = $null
+                    if ($item.WkUsage -and $item.WkUsage -ne "-" -and $item.WkUsage -match "(\d+(\.\d+)?)") {
+                        $wkDbl = [double]$matches[1]
+                    }
+                    $isExhausted = ($wkDbl -ne $null -and $wkDbl -ge 100.0)
+                    if ($item.IsActive -and $item.RemainingSeconds -gt 0 -and ($ForceMode -or -not $isExhausted)) {
+                        $activeWithRem += $item
+                    }
+                }
+                $newSleep = 120
+                $newReason = "all agents idle or freshly checked"
+                if ($activeWithRem.Count -gt 0) {
+                    $earliest = ($activeWithRem | Sort-Object RemainingSeconds)[0]
+                    $newSleep = [math]::Max(60, $earliest.RemainingSeconds + 45)
+                    $newReason = "$($earliest.Name) ($($earliest.Remaining) left)"
+                }
+
+                $targetDt = (Get-Date).AddSeconds($newSleep)
+                $curWake = $targetDt.ToString("HH:mm:ss")
+                $curReason = $newReason
+                $rem = $newSleep
+
+                # Redraw status table
+                Clear-Host
+                $nowStr = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                Write-Host "▶ Auto-Checker • $nowStr (Live Stream • Auto-refreshed every ${RefreshSecs}s)" -ForegroundColor Magenta
+                Show-StatusTable $data
+            } catch {}
+        }
+
+        $h = [math]::Floor($rem / 3600)
+        $m = [math]::Floor(($rem % 3600) / 60)
+        $s = $rem % 60
+        $durParts = @()
+        if ($h -gt 0) { $durParts += "${h}h" }
+        if ($m -gt 0) { $durParts += "${m}m" }
+        if ($s -gt 0 -or $durParts.Count -eq 0) { $durParts += "${s}s" }
+        $durStr = $durParts -join " "
+
+        $line = "⏳ Next poke target: $curWake ($curReason) • $durStr remaining"
+        if ($line.Length -gt $maxLen) {
+            $line = $line.Substring(0, $maxLen - 3) + "..."
+        }
+        $padded = $line.PadRight($maxLen)
+        Write-Host -NoNewline "`r$padded"
+    }
+    Write-Host ""
+    return $true
+}
+
 function Send-DesktopNotification {
     param(
         [string]$Title = "⚡ Agent Quota Tracker",
@@ -1257,8 +1383,8 @@ if ($Auto -or $AutoPoke) {
     $forceStr = if ($Force) { " • Force: ON" } else { "" }
     Write-Host "`n=================================================================================" -ForegroundColor Cyan
     Write-Host "  ⚡ AUTONOMOUS QUOTA AUTO-CHECKER STARTED" -ForegroundColor Cyan
-    Write-Host "  Continuous monitoring loop: checks status, waits for earliest window reset, primes, and repeats." -ForegroundColor White
-    Write-Host "  Mode: Adaptive Quota Priming$notifyStr$forceStr • Press Ctrl+C to terminate." -ForegroundColor DarkGray
+    Write-Host "  Continuous monitoring loop: live-updating table, waits for window reset, primes, and repeats." -ForegroundColor White
+    Write-Host "  Mode: Adaptive Quota Priming$notifyStr$forceStr • Live Stream (Refresh: ${RefreshInterval}s) • Press Ctrl+C to terminate." -ForegroundColor DarkGray
     Write-Host "=================================================================================`n" -ForegroundColor Cyan
 
     $cycle = 1
@@ -1327,10 +1453,10 @@ if ($Auto -or $AutoPoke) {
 
             $wakeTime = (Get-Date).AddSeconds($sleepSecs).ToString("HH:mm:ss")
             Write-Host "⏳ Next poke target: $wakeTime ($reason)" -ForegroundColor Cyan
-            Write-Host "Ticking countdown started. Press Ctrl+C to stop.`n" -ForegroundColor DarkGray
+            Write-Host "Live stream active (refreshing every ${RefreshInterval}s). Press Ctrl+C to stop.`n" -ForegroundColor DarkGray
 
-            # Step 4: Countdown & Poke
-            Start-Countdown $sleepSecs "Next poke at $wakeTime • $reason"
+            # Step 4: Live in-place ticking countdown & periodic table refresh
+            $null = Start-AutoCheckerLive -TotalSeconds $sleepSecs -WakeTime $wakeTime -Reason $reason -CurrentData $currentData -ForceMode ([bool]$Force) -AgentFilter $TargetAgent -RefreshSecs $RefreshInterval
             Write-Host "`n⚡ Timer reached ($wakeTime)! Priming newly available quota window(s)...`n" -ForegroundColor Green
             Invoke-PokeAgents $Force $TargetAgent -NotifyAlert:$Notify
             $cycle++

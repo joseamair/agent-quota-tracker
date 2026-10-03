@@ -22,9 +22,14 @@ A lightweight, local quota monitoring system and web dashboard designed for deve
   - [`agents --poke`](#2-agents---poke--p)
   - [`agents --poke-watch`](#3-agents---poke-watch)
   - [`agents --poke-at`](#4-agents---poke-at)
-  - [`agents --dashboard`](#5-agents---dashboard--d)
-  - [`agents --status --json`](#6-agents---status---json)
-  - [`agents --status --watch`](#7-agents---status---watch--w)
+  - [`agents auto`](#5-agents-auto--agents---auto----auto-poke-autonomous-quota-auto-checker-loop--live-stream)
+  - [`agents --schedule-install`](#6-agents---schedule-install----schedule-status----schedule-remove-os-background-priming)
+  - [`agents --dashboard`](#7-agents---dashboard--d-web-dashboard-v2)
+  - [`agents --status --json`](#8-agents---status---json)
+  - [`agents --prompt`](#9-agents---prompt--agents---prompt-format-shell-prompt--status-bar-integration)
+  - [`agents --status --watch`](#10-agents---status---watch--w)
+  - [`agents --analytics`](#11-agents---analytics----insights--agents-analytics-quota-velocity--historical-burn-down)
+  - [`agents --backfill`](#12-agents---backfill-historical-activity--schedule-log-importer)
 - [Global PowerShell Integration](#-global-powershell-integration)
 - [Web Dashboard Preview](#-web-dashboard-preview)
 - [Linux & macOS Compatibility & Setup Guide](#-linux--macos-compatibility--setup-guide)
@@ -239,22 +244,29 @@ Schedules an automated poke at a specific planned time of day (24-hour format) t
 
 ---
 
-### 5. `agents auto` / `agents --auto` / `--auto-poke` (Autonomous Quota Auto-Checker Loop)
-Runs a continuous, fully autonomous monitoring and priming task that loops endlessly:
-1. Prints the live quota status table across all accounts.
-2. Immediately primes any accounts that are currently idle and ready to poke (skipping accounts with $\ge 100\%$ weekly usage).
-3. Computes the earliest next 5-hour window reset time and displays a live ticking countdown: `⏳ Next poke target at <HH:MM:SS> (<Agent Name> (<time> left)) • Press Ctrl+C to stop`.
-4. Automatically primes newly available quota windows the moment the timer is reached, then restarts the cycle.
+### 5. `agents auto` / `agents --auto` / `--auto-poke` (Autonomous Quota Auto-Checker Loop & Live Stream)
+Runs a continuous, fully autonomous monitoring and priming daemon with real-time in-place status table streaming:
+1. **Initial Priming Check**: Immediately primes any dormant accounts that are currently idle and ready to poke (skipping accounts with $\ge 100\%$ weekly usage).
+2. **Live In-Place Status Table Stream**: Continuously renders the full quota status table in-place using ANSI redraw and `rich.live.Live`, ticking active window countdowns second-by-second across all accounts.
+3. **Zero-Token Quota Consumption Refetching**: Periodically re-queries local cache and provider OAuth usage endpoints (default every 15s via `--refresh-interval 15`) to keep `5h%` and `Wk%` metrics fresh as you write code, without consuming any LLM model generation tokens.
+4. **Early Idle Detection**: Automatically triggers immediate window priming if an account's quota resets or cools down earlier than the scheduled timer.
+5. **Live Ticking Countdown**: Displays target reset time and a live second-by-second countdown until the next scheduled poke: `⏳ Next poke target: <HH:MM:SS> (<Agent Name> (<time> left)) • Press Ctrl+C to stop`.
+6. **Automatic Window Priming**: Automatically primes newly available quota windows the moment the timer is reached, then restarts the cycle endlessly.
 
 ```powershell
 # Start autonomous auto-checker loop:
 agents auto
-# Or with CLI flag:
-.\agents.ps1 --auto
-# With desktop notifications:
-.\agents.ps1 --auto --notify
+
+# With custom table refresh interval (e.g. 10s or 30s):
+agents auto --refresh-interval 30
+# Or using the shorthand flag:
+.\agents.ps1 --auto -ri 10
+
+# With native desktop toast notifications when accounts are primed:
+agents auto --notify
+
 # With native PowerShell:
-.\agents_native.ps1 -Auto -Notify
+.\agents_native.ps1 -Auto -RefreshInterval 15 -Notify
 ```
 
 ---
@@ -404,7 +416,7 @@ function prompt {
 
 ---
 
-### 7. `agents --status --watch` (`-w`)
+### 10. `agents --status --watch` (`-w`)
 Continuously refreshes the quota status table in your terminal every N seconds (default: 15s) with a clear screen:
 
 ```powershell
@@ -417,7 +429,7 @@ Continuously refreshes the quota status table in your terminal every N seconds (
 
 ---
 
-### 10. `agents --analytics` / `--insights` / `agents analytics` (Quota Velocity & Historical Burn-Down)
+### 11. `agents --analytics` / `--insights` / `agents analytics` (Quota Velocity & Historical Burn-Down)
 Analyzes historical usage patterns and quota velocity logged to the embedded SQLite database (`~/.agent_quota_tracker/history.db`):
 - **Active Time Ratio**: Percentage of tracked time with active 5-hour quota windows.
 - **Peak Consumption Hours**: Top 3 diurnal hours of highest prompt activity throughout the day.
@@ -437,6 +449,25 @@ uv run agents analytics
 
 # With native PowerShell:
 .\agents_native.ps1 -Analytics -Days 7
+```
+
+---
+
+### 12. `agents --backfill` (Historical Activity & Schedule Log Importer)
+Scans legacy priming logs (`~/.agent_quota_tracker/schedule.log`) and state cache (`~/.agents_dashboard/state.json`) and ingests them into the SQLite timeseries database (`~/.agent_quota_tracker/history.db`):
+- **Zero-Duplicate Guard**: Checks existing timestamps and agent IDs to guarantee idempotency.
+- **Immediate Insights**: Instantly populates historical diurnal charts and burn-down analytics without waiting days to collect new data.
+- **Web Dashboard**: Also available via the interactive **📥 Backfill** button in the Web Dashboard header.
+
+```powershell
+# Run historical backfill importer:
+agents --backfill
+
+# With standalone script:
+python agents.py --backfill
+
+# With native PowerShell:
+.\agents_native.ps1 -Backfill
 ```
 
 ---

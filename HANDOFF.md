@@ -83,14 +83,14 @@ The project is structured with a **Tri-Engine Runtime**. Whenever adding new CLI
 Before pushing any commit or opening a PR, always execute the automated test suites:
 
 ```powershell
-# 1. Run Python unit tests (must pass 105/105)
-uv run pytest -v
+# 1. Run Python unit tests (must pass 120/120)
+uv run --no-sync pytest -v
 
 # 2. Syntax check standalone script
-uv run python -m py_compile agents.py
+uv run --no-sync python -m py_compile agents.py
 
 # 3. CLI help check
-uv run agents --help
+uv run --no-sync agents --help
 
 # 4. PowerShell AST syntax parser validation
 $errors = @(); $tokens = $null;
@@ -111,6 +111,8 @@ Write-Host "All PowerShell scripts validate cleanly!"
   - *Integration*: Future `agents traffic` CLI view and Web Dashboard visitor traffic widget.
 
 ### Recently Delivered
+- [**#44**](https://github.com/joseamair/agent-quota-tracker/pull/44) - **CLI Wrapper Lock Fix & Standalone Rich Table Support**: Added `--no-sync` and fallback execution via `python -m agent_quota_tracker.cli` in `agents.ps1` to prevent Windows file-locking `Access is denied (os error 5)` during concurrent execution, and added optional `rich` live table auto-detection to standalone `agents.py`.
+- [**#43**](https://github.com/joseamair/agent-quota-tracker/pull/43) - **Official v1.2.1 Release & Verified Commits Rule**: Bumped version to `v1.2.1` across project files and formalized the Verified Commits & Releases Rule (all commits must be PR-squashed via GitHub's `web-flow` signer).
 - [**#42**](https://github.com/joseamair/agent-quota-tracker/pull/42) - **Live In-Place Status Table Stream for Auto-Checker (`agents auto`, `--auto-poke`)**: Added real-time in-place status table stream with second-by-second countdown for active accounts, zero-prompt-token periodic quota utilization refetching (default every 15s via `--refresh-interval`), and early idle detection. Full Tri-Engine Parity across `src/agent_quota_tracker/cli.py`, `agents.py`, and `agents_native.ps1`.
 - [**#41**](https://github.com/joseamair/agent-quota-tracker/issues/41) / [**#40**](https://github.com/joseamair/agent-quota-tracker/pull/40) - **Interactive Web Dashboard Charts (Hover Tooltips, Multi-Metric Selector, Account Checkboxes, Drag Zoom)**: Enhanced historical burn-down chart with vertical crosshair scrubbing, point halos, glassmorphic floating tooltips, 4-way metric selection (5h %, weekly %, time remaining, estimated tokens computed from tier capacity), dynamic per-account legend checkboxes with `localStorage` persistence, and horizontal timeline box drag-to-zoom with reset button. Full Tri-Engine Parity.
 - [**#37**](https://github.com/joseamair/agent-quota-tracker/pull/37) - **Historical Poke & Activity Backfill Importer**: Multi-source scanner parsing legacy `~/.agent_quota_tracker/schedule.log` and `~/.agents_dashboard/state.json`. Safe, zero-duplicate ingestion into SQLite `history.db` (`pokes` and `snapshots`), immediately backfilling past weeks of usage trends and diurnal peak hours. Added `agents --backfill`, `python agents.py --backfill`, `agents_native.ps1 -Backfill`, and interactive `📥 Backfill` button on Web Dashboard.

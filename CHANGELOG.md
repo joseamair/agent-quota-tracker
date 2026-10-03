@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+### Fixed
+- **CLI Shell Wrapper & Standalone Rich Table Rendering** ([#44](https://github.com/joseamair/agent-quota-tracker/pull/44)):
+  - **Windows Executable Locking (OS Error 5)**: Added `--no-sync` to `uv run` in `agents.ps1` and fallback execution via `python -m agent_quota_tracker.cli` when `.venv\Scripts\agents.exe` is locked by another running process.
+  - **Standalone Terminal Formatting**: Added auto-detection and optional `rich` formatting support to `agents.py` so running `python agents.py auto` renders the rich full-color live table and progress bars when `rich` is installed in the active virtual environment, with graceful fallback to ANSI.
+- **Dashboard SSE Test Isolation**: Added autouse `get_all_statuses` mock in `tests/test_dashboard.py` to prevent background SSE threads from issuing external provider queries or contaminating SQLite test fixture databases during test runs.
+
 ## [1.2.1] - 2026-10-03
 
 ### Added

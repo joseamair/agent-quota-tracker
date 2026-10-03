@@ -544,6 +544,9 @@ Provider credentials and configurations are mapped automatically from your stand
 
 ## 🗺️ Project Roadmap
 
+### 🚀 Delivered in v1.2.1
+- [x] **Live In-Place Status Table Stream for Auto-Checker (`agents auto`, `--auto-poke`)** ([#42](https://github.com/joseamair/agent-quota-tracker/pull/42)): Real-time second-by-second active countdown ticker, periodic zero-prompt-token quota utilization refetching (default every 15s via `--refresh-interval`), and early idle detection. Full Tri-Engine Parity.
+
 ### 🚀 Delivered in v1.2.0
 - [x] **Interactive Web Dashboard Charts & Inspection Controls** ([#41](https://github.com/joseamair/agent-quota-tracker/issues/41), [#40](https://github.com/joseamair/agent-quota-tracker/pull/40)): Crosshair scrubbing, point halos, floating tooltips, 4-metric selection (5h %, weekly %, time left, tokens), per-account filter checkboxes with `localStorage` persistence, and timeline box drag-to-zoom with reset button.
 - [x] **Web Dashboard v2 with Live SSE Push Updates & Interactive Controls** ([#24](https://github.com/joseamair/agent-quota-tracker/issues/24)): Server-Sent Events (SSE) `/api/stream` updates, per-card "⚡ Poke" & "⚡ Force Poke" buttons, in-browser morning priming configuration modal (`/api/schedule`), and 3 themes (Dark, OLED, Light).

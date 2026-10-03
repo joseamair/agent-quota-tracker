@@ -90,7 +90,7 @@ class CopilotTracker(BaseTracker):
         url = "https://api.github.com/copilot_internal/v2/token"
         headers = {
             "Authorization": f"Bearer {token}",
-            "User-Agent": "agent-quota-tracker/1.2.0",
+            "User-Agent": "agent-quota-tracker/1.2.1",
             "Accept": "application/json",
         }
         req = urllib.request.Request(url, headers=headers, method="GET")

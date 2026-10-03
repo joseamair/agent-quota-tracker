@@ -86,7 +86,7 @@ class AiderTracker(BaseTracker):
         url = "https://openrouter.ai/api/v1/auth/key"
         headers = {
             "Authorization": f"Bearer {api_key}",
-            "User-Agent": "agent-quota-tracker/1.2.0",
+            "User-Agent": "agent-quota-tracker/1.2.1",
             "Accept": "application/json",
         }
         req = urllib.request.Request(url, headers=headers, method="GET")

@@ -20,6 +20,8 @@ foreach ($arg in $ScriptArgs) {
         $pyArgs += '--schedule-status'
     } elseif ($arg -eq '-ScheduleRemove') {
         $pyArgs += '--schedule-remove'
+    } elseif ($arg -eq '-RefreshInterval') {
+        $pyArgs += '--refresh-interval'
     } elseif ($arg -eq '-TargetAgent') {
         $pyArgs += '--agent'
     } elseif ($arg -match '^-[A-Za-z]' -and -not $arg.StartsWith('--') -and $arg.Length -gt 2) {

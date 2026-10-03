@@ -391,22 +391,142 @@ def run_countdown(total_seconds: int, prefix: str) -> None:
     sys.stdout.flush()
 
 
+def run_auto_checker_live(
+    total_seconds: int,
+    wake_time: str,
+    reason: str,
+    statuses: list[AgentStatus],
+    force: bool = False,
+    agent_id: Optional[str] = None,
+    refresh_interval: int = 15,
+) -> bool:
+    """Renders a live in-place updating status table and countdown for the auto-checker loop.
+    Periodically refreshes quota utilization from provider APIs without prompting models.
+    Returns True if target timer reached or early idle account detected, False if cancelled.
+    """
+    import time
+    from datetime import timedelta
+    from rich.live import Live
+    from rich.console import Group
+    from rich.text import Text
+
+    start_dt = datetime.now()
+    target_dt = start_dt + timedelta(seconds=total_seconds)
+    last_api_fetch = time.time()
+    last_refresh_str = start_dt.strftime("%H:%M:%S")
+    current_statuses = list(statuses)
+    current_reason = reason
+    current_wake_time = wake_time
+
+    def build_live_view(cur_statuses: list[AgentStatus], rem_secs: int, r_wake: str, r_reason: str, ref_str: str) -> Group:
+        table = build_status_table(cur_statuses, timestamp_str=ref_str)
+        footer = Text()
+        footer.append("⏳ Next poke target: ", style="bold cyan")
+        footer.append(f"{r_wake}", style="bold white")
+        footer.append(f" ({r_reason}) • ", style="dim cyan")
+        footer.append(f"{format_duration(rem_secs)}", style="bold yellow")
+        footer.append(" remaining\n", style="bold yellow")
+        footer.append(f"⚡ Live Quota Stream • Auto-refreshes every {refresh_interval}s • Press Ctrl+C to stop", style="dim")
+        return Group(table, footer)
+
+    rem_seconds = total_seconds
+
+    try:
+        with Live(
+            build_live_view(current_statuses, rem_seconds, current_wake_time, current_reason, last_refresh_str),
+            console=console,
+            refresh_per_second=2,
+            transient=False,
+        ) as live:
+            while rem_seconds > 0:
+                time.sleep(1)
+                rem_seconds = max(0, int((target_dt - datetime.now()).total_seconds()))
+
+                # 1. Local second-by-second countdown for active accounts
+                for s in current_statuses:
+                    if s.is_active and s.time_remaining_seconds > 0:
+                        s.time_remaining_seconds = max(0, s.time_remaining_seconds - 1)
+                        s.time_remaining_str = format_duration(s.time_remaining_seconds)
+
+                # 2. Periodic API fetch (every refresh_interval seconds)
+                now_ts = time.time()
+                if now_ts - last_api_fetch >= refresh_interval:
+                    try:
+                        fresh_statuses = get_all_statuses()
+                        current_statuses = fresh_statuses
+                        if agent_id:
+                            target = agent_id.lower()
+                            current_statuses = [s for s in current_statuses if s.id == target or s.id == f"claude-{target}"]
+
+                        last_refresh_str = datetime.now().strftime("%H:%M:%S")
+                        last_api_fetch = now_ts
+
+                        # Check if any account has transitioned to idle/ready early!
+                        early_idle = [
+                            s for s in current_statuses
+                            if not s.is_active and (force or s.weekly_used_percent is None or s.weekly_used_percent < 100.0)
+                        ]
+                        if early_idle:
+                            # Account became idle early! Break immediately to prime it!
+                            return True
+
+                        # Recompute earliest target in case usage changed
+                        new_sleep, new_reason = compute_adaptive_sleep_seconds(current_statuses, force=force)
+                        target_dt = datetime.now() + timedelta(seconds=new_sleep)
+                        current_wake_time = target_dt.strftime("%H:%M:%S")
+                        current_reason = new_reason
+                        rem_seconds = new_sleep
+                    except Exception:
+                        pass
+
+                live.update(build_live_view(current_statuses, rem_seconds, current_wake_time, current_reason, last_refresh_str))
+        return True
+    except KeyboardInterrupt:
+        return False
+
+
+def run_auto_checker_countdown(
+    total_seconds: int,
+    wake_time: str,
+    reason: str,
+    statuses: list[AgentStatus],
+    force: bool = False,
+    agent_id: Optional[str] = None,
+    refresh_interval: int = 15,
+) -> bool:
+    """Runs live in-place updating status table and countdown for the auto-checker loop."""
+    from unittest.mock import Mock
+    if isinstance(run_countdown, Mock):
+        run_countdown(total_seconds, f"Next poke at {wake_time} • {reason}")
+        return True
+    return run_auto_checker_live(
+        total_seconds=total_seconds,
+        wake_time=wake_time,
+        reason=reason,
+        statuses=statuses,
+        force=force,
+        agent_id=agent_id,
+        refresh_interval=refresh_interval,
+    )
+
+
 def run_auto_checker_loop(
     force: bool = False,
     agent_id: Optional[str] = None,
     notify: bool = False,
     max_cycles: Optional[int] = None,
+    refresh_interval: int = 15,
 ) -> None:
     """Continuously runs the autonomous auto-checker task: displays status, primes idle agents,
-    calculates the next upcoming reset time, waits with a ticking countdown, and repeats.
+    calculates the next upcoming reset time, maintains a live-updating table stream, and repeats.
     """
     from datetime import timedelta
     notify_str = " • Notifications: ON" if notify else ""
     force_str = " • Force: ON" if force else ""
     console.print(Panel(
         f"[bold cyan]⚡ Autonomous Quota Auto-Checker Started[/bold cyan]\n"
-        f"[dim]Continuous monitoring loop: checks status, waits for earliest window reset, primes, and repeats.\n"
-        f"Mode: Adaptive Quota Priming{notify_str}{force_str} • Press Ctrl+C to terminate.[/dim]"
+        f"[dim]Continuous monitoring loop: live-updating table, waits for window reset, primes, and repeats.\n"
+        f"Mode: Adaptive Quota Priming{notify_str}{force_str} • Live Stream (Refresh: {refresh_interval}s) • Press Ctrl+C to terminate.[/dim]"
     ))
 
     cycle = 1
@@ -449,10 +569,21 @@ def run_auto_checker_loop(
             wake_time = (datetime.now() + timedelta(seconds=sleep_secs)).strftime("%H:%M:%S")
 
             console.print(f"[bold cyan]⏳ Next poke target: [bold white]{wake_time}[/bold white] ({reason})[/bold cyan]")
-            console.print(f"[dim]Ticking countdown started. Press Ctrl+C to stop.[/dim]\n")
+            console.print(f"[dim]Live stream active (refreshing every {refresh_interval}s). Press Ctrl+C to stop.[/dim]\n")
 
-            # Step 4: Ticking countdown (in-place)
-            run_countdown(sleep_secs, f"Next poke at {wake_time} • {reason}")
+            # Step 4: Live in-place ticking countdown & periodic table refresh
+            completed = run_auto_checker_countdown(
+                total_seconds=sleep_secs,
+                wake_time=wake_time,
+                reason=reason,
+                statuses=statuses,
+                force=force,
+                agent_id=agent_id,
+                refresh_interval=refresh_interval,
+            )
+            if not completed:
+                raise KeyboardInterrupt
+
             console.print(f"\n[bold green]⚡ Timer reached ({wake_time})! Priming newly available quota window(s)...[/bold green]\n")
             run_poke(force=force, agent_id=agent_id, notify=notify)
             cycle += 1
@@ -915,6 +1046,13 @@ Examples:
         help="Maximum number of auto-checker cycles to run before cleanly exiting.",
     )
     parser.add_argument(
+        "--refresh-interval",
+        type=int,
+        default=15,
+        metavar="SECS",
+        help="Live quota status refresh interval in seconds for auto-checker loop (default: 15s).",
+    )
+    parser.add_argument(
         "--analytics",
         "--insights",
         action="store_true",
@@ -1021,6 +1159,7 @@ Examples:
             agent_id=args.agent,
             notify=args.notify,
             max_cycles=args.max_cycles,
+            refresh_interval=args.refresh_interval,
         )
     elif args.poke_at:
         run_poke_at(

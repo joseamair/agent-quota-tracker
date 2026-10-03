@@ -2323,21 +2323,125 @@ def run_countdown(total_seconds: int, prefix: str) -> None:
     sys.stdout.flush()
 
 
+def run_auto_checker_live(
+    total_seconds: int,
+    wake_time: str,
+    reason: str,
+    statuses: list[AgentInfo],
+    force: bool = False,
+    agent_id: Optional[str] = None,
+    refresh_interval: int = 15,
+) -> bool:
+    """Periodically refreshes quota status table and ticks countdown in-place."""
+    start_dt = datetime.now()
+    target_dt = start_dt + timedelta(seconds=total_seconds)
+    last_api_fetch = time.time()
+    current_statuses = list(statuses)
+    cur_wake_time = wake_time
+    cur_reason = reason
+    rem = total_seconds
+
+    try:
+        term_w = shutil.get_terminal_size(fallback=(100, 24)).columns
+    except Exception:
+        term_w = 100
+    max_len = max(40, term_w - 2)
+
+    try:
+        while rem > 0:
+            time.sleep(1)
+            rem = max(0, int((target_dt - datetime.now()).total_seconds()))
+
+            # Tick local active countdowns
+            for s in current_statuses:
+                if s.is_active and s.time_remaining_seconds > 0:
+                    s.time_remaining_seconds = max(0, s.time_remaining_seconds - 1)
+                    s.time_remaining_str = format_duration(s.time_remaining_seconds)
+
+            now_ts = time.time()
+            if now_ts - last_api_fetch >= refresh_interval:
+                try:
+                    fresh = fetch_all_statuses()
+                    current_statuses = fresh
+                    if agent_id:
+                        target = agent_id.lower()
+                        current_statuses = [s for s in current_statuses if s.id == target or s.id == f"claude-{target}"]
+
+                    last_api_fetch = now_ts
+
+                    # Check for early idle
+                    early_idle = [
+                        s for s in current_statuses
+                        if not s.is_active and (force or s.weekly_used_percent is None or s.weekly_used_percent < 100.0)
+                    ]
+                    if early_idle:
+                        return True
+
+                    # Redraw updated status table
+                    print("\033[2J\033[H", end="")
+                    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    print(f"▶ Auto-Checker • {now_str} (Live Stream • Auto-refreshed every {refresh_interval}s)")
+                    print_status_table(statuses=current_statuses)
+
+                    new_sleep, new_reason = compute_adaptive_sleep_seconds(current_statuses)
+                    target_dt = datetime.now() + timedelta(seconds=new_sleep)
+                    cur_wake_time = target_dt.strftime("%H:%M:%S")
+                    cur_reason = new_reason
+                    rem = new_sleep
+                except Exception:
+                    pass
+
+            line = f"⏳ Next poke target: {cur_wake_time} ({cur_reason}) • {format_duration(rem)} remaining"
+            if len(line) > max_len:
+                line = line[:max_len - 3] + "..."
+            padded = line.ljust(max_len)
+            sys.stdout.write(f"\r{padded}")
+            sys.stdout.flush()
+
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+        return True
+    except KeyboardInterrupt:
+        return False
+
+
+def run_auto_checker_countdown(
+    total_seconds: int,
+    wake_time: str,
+    reason: str,
+    statuses: list[AgentInfo],
+    force: bool = False,
+    agent_id: Optional[str] = None,
+    refresh_interval: int = 15,
+) -> bool:
+    """Runs live in-place updating status table and countdown for the auto-checker loop."""
+    return run_auto_checker_live(
+        total_seconds=total_seconds,
+        wake_time=wake_time,
+        reason=reason,
+        statuses=statuses,
+        force=force,
+        agent_id=agent_id,
+        refresh_interval=refresh_interval,
+    )
+
+
 def run_auto_checker_loop(
     force: bool = False,
     agent_id: Optional[str] = None,
     notify: bool = False,
     max_cycles: Optional[int] = None,
+    refresh_interval: int = 15,
 ) -> None:
     """Continuously runs the autonomous auto-checker task: displays status, primes idle agents,
-    calculates the next upcoming reset time, waits with a ticking countdown, and repeats.
+    calculates the next upcoming reset time, maintains a live-updating table stream, and repeats.
     """
     notify_str = " • Notifications: ON" if notify else ""
     force_str = " • Force: ON" if force else ""
     print(f"\n================================================================================================================================")
     print(f"  ⚡ AUTONOMOUS QUOTA AUTO-CHECKER STARTED")
-    print(f"  Continuous monitoring loop: checks status, waits for earliest window reset, primes, and repeats.")
-    print(f"  Mode: Adaptive Quota Priming{notify_str}{force_str} • Press Ctrl+C to terminate.")
+    print(f"  Continuous monitoring loop: live-updating table, waits for window reset, primes, and repeats.")
+    print(f"  Mode: Adaptive Quota Priming{notify_str}{force_str} • Live Stream (Refresh: {refresh_interval}s) • Press Ctrl+C to terminate.")
     print(f"================================================================================================================================\n")
 
     cycle = 1
@@ -2380,10 +2484,21 @@ def run_auto_checker_loop(
             wake_time = (datetime.now() + timedelta(seconds=sleep_secs)).strftime("%H:%M:%S")
 
             print(f"⏳ Next poke target: {wake_time} ({reason})")
-            print("Ticking countdown started. Press Ctrl+C to stop.\n")
+            print(f"Live stream active (refreshing every {refresh_interval}s). Press Ctrl+C to stop.\n")
 
-            # Step 4: Ticking countdown (in-place)
-            run_countdown(sleep_secs, f"Next poke at {wake_time} • {reason}")
+            # Step 4: Live in-place ticking countdown & periodic table refresh
+            completed = run_auto_checker_countdown(
+                total_seconds=sleep_secs,
+                wake_time=wake_time,
+                reason=reason,
+                statuses=statuses,
+                force=force,
+                agent_id=agent_id,
+                refresh_interval=refresh_interval,
+            )
+            if not completed:
+                raise KeyboardInterrupt
+
             print(f"\n⚡ Timer reached ({wake_time})! Priming newly available quota window(s)...\n")
             run_poke_command(force=force, agent_id=agent_id, notify=notify)
             cycle += 1
@@ -5628,6 +5743,13 @@ Examples:
         help="Maximum number of auto-checker cycles to run before cleanly exiting.",
     )
     parser.add_argument(
+        "--refresh-interval",
+        type=int,
+        default=15,
+        metavar="SECS",
+        help="Live quota status refresh interval in seconds for auto-checker loop (default: 15s).",
+    )
+    parser.add_argument(
         "--analytics",
         "--insights",
         action="store_true",
@@ -5732,6 +5854,7 @@ Examples:
             agent_id=args.agent,
             notify=args.notify,
             max_cycles=args.max_cycles,
+            refresh_interval=args.refresh_interval,
         )
     elif args.poke_at:
         run_poke_at(

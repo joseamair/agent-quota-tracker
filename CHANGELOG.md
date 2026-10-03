@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+### Added
+- **Proactive Token Expiration & Auth Health Guard**:
+  - **Local Pre-Flight Inspection**: Inspects local OAuth credentials prior to network queries, reading `expiresAt` epoch millisecond timestamps from Anthropic/CCS `.credentials.json` and Copilot auth tokens to detect expirations before HTTP calls.
+  - **HTTP 401/403 Error Detection**: Intercepts OAuth token expiration responses across Anthropic Claude, Cursor, and Copilot APIs, flagging accounts with `auth_status="expired"`.
+  - **Distinct Visual Badging**: Displays bold red `⚠️ EXPIRED` and bold yellow `⚠️ NO AUTH` badges with `Re-auth` / `Login req` indicators across all terminal table sizes and web dashboard cards.
+  - **Actionable Remediation Guidance**: Renders a dedicated `🔐 Authentication Health Alerts` panel box on CLI and alert pills on Web Dashboard providing exact remediation commands (e.g., `ccs <profile> login`, `claude login`, `gh auth login`).
+  - **Poke Exhaustion & Error Skip Guard**: Prevents automated poke routines (`--poke`, `--auto`, `--poke-watch`, `--poke-at`) from dispatching greeting prompts to expired accounts without `--force`.
+  - **Tri-Engine Parity**: Fully implemented across modular Python package (`src/agent_quota_tracker/`), standalone runner (`agents.py`), and native PowerShell (`agents_native.ps1`).
+
 ### Fixed
 - **CLI Shell Wrapper & Standalone Rich Table Rendering** ([#44](https://github.com/joseamair/agent-quota-tracker/pull/44)):
   - **Windows Executable Locking (OS Error 5)**: Added `--no-sync` to `uv run` in `agents.ps1` and fallback execution via `python -m agent_quota_tracker.cli` when `.venv\Scripts\agents.exe` is locked by another running process.

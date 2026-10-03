@@ -98,6 +98,11 @@ A lightweight, local quota monitoring system and web dashboard designed for deve
 - **Interactive Web Dashboard**:
   - Embedded HTTP server at `http://localhost:5050` with REST endpoints (`/api/status`, `/api/poke`).
   - Circular SVG progress rings, live ticking JavaScript countdown timers, and manual poke triggers.
+- **Proactive Token Expiration & Auth Health Guard**:
+  - Automatically checks local OAuth token expiration timestamps (e.g., Anthropic `.credentials.json` `expiresAt` epoch milliseconds) and Copilot token expirations prior to issuing HTTP requests.
+  - Displays prominent `⚠️ EXPIRED` (bold red) and `⚠️ NO AUTH` (bold yellow) status badges on terminal tables and dashboard cards.
+  - Renders a dedicated `🔐 Authentication Health Alerts` panel box on CLI and alert pills in Web Dashboard providing exact remediation commands (e.g. `ccs <profile> login`, `claude login`, `gh auth login`).
+  - Guards automated poke tasks (`--poke`, `--auto`, `--poke-watch`, `--poke-at`) from dispatching prompts to expired accounts without `--force`.
 - **Tri-Engine Implementation**:
   - Full Python package with Rich terminal formatting (`uv run agents` or `python -m agent_quota_tracker`).
   - Standalone single-file Python runner (`agents.py`).

@@ -142,6 +142,21 @@ def poke_all(
     for t in trackers:
         if not force:
             st = t.get_status()
+            if st.auth_status in ("expired", "missing"):
+                skipped_res = PokeResult(
+                    agent_id=t.agent_id,
+                    agent_name=t.display_name,
+                    action_taken="skipped",
+                    message=f"Authentication {st.auth_status} ({st.remediation_hint or 'Login required'}). Skipped poke.",
+                )
+                results.append(skipped_res)
+                try:
+                    from agent_quota_tracker.history import record_poke
+                    record_poke(skipped_res.agent_id, skipped_res.agent_name, skipped_res.action_taken, skipped_res.message)
+                except Exception:
+                    pass
+                continue
+
             if st.is_active:
                 skipped_res = PokeResult(
                     agent_id=t.agent_id,

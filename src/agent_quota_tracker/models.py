@@ -27,6 +27,8 @@ class AgentStatus:
     details: dict[str, Any] = field(default_factory=dict)
     error: Optional[str] = None
     locked_reason: Optional[str] = None
+    auth_status: str = "valid"  # 'valid', 'expired', 'missing', 'unsupported'
+    remediation_hint: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -49,6 +51,8 @@ class AgentStatus:
             "last_poked_at": self.last_poked_at,
             "error": self.error,
             "locked_reason": self.locked_reason,
+            "auth_status": self.auth_status,
+            "remediation_hint": self.remediation_hint,
         }
 
 

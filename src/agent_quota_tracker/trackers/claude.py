@@ -5,6 +5,8 @@ import os
 import shutil
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -87,17 +89,62 @@ class ClaudeTracker(BaseTracker):
             return fallback
         return None
 
-    def _fetch_live_usage(self) -> Optional[dict[str, Any]]:
+    def _read_credentials(self) -> Optional[dict[str, Any]]:
+        creds_path = self._get_creds_path()
+        if not creds_path or not creds_path.exists():
+            return None
         try:
-            creds_path = self._get_creds_path()
-            if not creds_path or not creds_path.exists():
+            return json.loads(creds_path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+
+    def _read_claude_json(self) -> Optional[dict[str, Any]]:
+        p = self._get_json_path() or self.claude_json_path
+        if not p or not p.exists():
+            return None
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+
+    def _inspect_credentials(self) -> tuple[str, Optional[str]]:
+        """Checks the local credentials file for existence, valid tokens, and expiration."""
+        hint = (
+            f"ccs {self.profile} login"
+            if (self.profile and self.profile not in ("", "default", "system"))
+            else "claude login"
+        )
+        creds = self._read_credentials()
+        if not creds:
+            return "missing", hint
+
+        try:
+            oauth = creds.get("claudeAiOauth", {})
+            token = oauth.get("accessToken")
+            if not token:
+                return "missing", hint
+
+            expires_at = oauth.get("expiresAt")
+            if expires_at and isinstance(expires_at, (int, float)):
+                # expiresAt is in milliseconds since epoch
+                now_ms = time.time() * 1000
+                if now_ms > expires_at:
+                    return "expired", hint
+        except Exception:
+            return "missing", hint
+
+        return "valid", None
+
+    def _fetch_live_usage(self) -> Optional[dict[str, Any]]:
+        self._http_auth_expired = False
+        try:
+            creds = self._read_credentials()
+            if not creds:
                 return None
-            creds = json.loads(creds_path.read_text(encoding="utf-8"))
             token = creds.get("claudeAiOauth", {}).get("accessToken")
             if not token:
                 return None
 
-            import urllib.request
             req = urllib.request.Request(
                 "https://api.anthropic.com/api/oauth/usage",
                 headers={
@@ -114,7 +161,6 @@ class ClaudeTracker(BaseTracker):
                         target_json = self._get_json_path() or self.claude_json_path
                         if target_json and target_json.exists():
                             cj = json.loads(target_json.read_text(encoding="utf-8"))
-                            import time
                             cj["cachedUsageUtilization"] = {
                                 "fetchedAtMs": int(time.time() * 1000),
                                 "accountUuid": creds.get("claudeAiOauth", {}).get("accountUuid"),
@@ -124,6 +170,9 @@ class ClaudeTracker(BaseTracker):
                     except Exception:
                         pass
                     return data
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                self._http_auth_expired = True
         except Exception:
             pass
         return None
@@ -132,7 +181,20 @@ class ClaudeTracker(BaseTracker):
         agent_st = get_agent_state(self.agent_id)
         last_poked_at = agent_st.get("last_poked_at")
 
+        auth_status, remediation_hint = self._inspect_credentials()
         live_data = self._fetch_live_usage()
+        if getattr(self, "_http_auth_expired", False):
+            auth_status = "expired"
+            if not remediation_hint:
+                remediation_hint = (
+                    f"ccs {self.profile} login"
+                    if (self.profile and self.profile not in ("", "default", "system"))
+                    else "claude login"
+                )
+        elif live_data:
+            auth_status = "valid"
+            remediation_hint = None
+
         five_hour = {}
         seven_day = {}
         cached_usage = {}
@@ -159,17 +221,24 @@ class ClaudeTracker(BaseTracker):
                     status_label="Error",
                     last_poked_at=last_poked_at,
                     error=f"Failed to read .claude.json: {e}",
+                    auth_status=auth_status,
+                    remediation_hint=remediation_hint,
                 )
         else:
+            status_lbl = "⚠️ EXPIRED" if auth_status == "expired" else "⚠️ NO AUTH"
+            lock_msg = f"OAuth access token expired. Run '{remediation_hint}' to re-authenticate." if auth_status == "expired" else f"Claude credentials not found. Run '{remediation_hint}' to log in."
             return AgentStatus(
                 id=self.agent_id,
                 name=self.display_name,
                 provider=self.provider,
                 is_active=False,
                 used_percent=0.0,
-                status_label="Not initialized",
+                status_label=status_lbl,
                 last_poked_at=last_poked_at,
                 error=f"Claude credentials or config not found for profile: {self.profile}",
+                auth_status=auth_status,
+                remediation_hint=remediation_hint,
+                locked_reason=lock_msg,
             )
 
         used_pct = float(five_hour.get("utilization") or 0.0)
@@ -223,6 +292,14 @@ class ClaudeTracker(BaseTracker):
                 if not locked_reason:
                     locked_reason = "weekly_limit_exhausted"
 
+        # Auth status overrides
+        if auth_status == "expired":
+            status_label = "⚠️ EXPIRED"
+            if not locked_reason:
+                locked_reason = f"OAuth access token expired. Run '{remediation_hint}' to re-authenticate."
+        elif auth_status == "missing":
+            if not status_label or status_label == "Inactive (Ready to Poke)":
+                status_label = "⚠️ NO AUTH"
         resets_at_ts = resets_at_dt.timestamp() if resets_at_dt else None
 
         return AgentStatus(
@@ -244,6 +321,8 @@ class ClaudeTracker(BaseTracker):
             category=self._category,
             last_poked_at=last_poked_at,
             locked_reason=locked_reason,
+            auth_status=auth_status,
+            remediation_hint=remediation_hint,
             details={
                 "profile": self.profile,
                 "fetched_at_ms": cached_usage.get("fetchedAtMs") if cached_usage else None,
@@ -256,6 +335,17 @@ class ClaudeTracker(BaseTracker):
     def poke(self, prompt: str = "Hello, how are you doing?", force: bool = False) -> PokeResult:
         # Check current status first
         status = self.get_status()
+        if not force and status.auth_status in ("expired", "missing"):
+            return PokeResult(
+                agent_id=self.agent_id,
+                agent_name=self.display_name,
+                action_taken="skipped",
+                message=f"Authentication {status.auth_status} ({status.remediation_hint or 'Login required'}). Skipped poke (use --force to override).",
+                time_remaining_str="Inactive",
+                used_percent=status.used_percent,
+                verified_active=False,
+            )
+
         if status.is_active and not force:
             return PokeResult(
                 agent_id=self.agent_id,

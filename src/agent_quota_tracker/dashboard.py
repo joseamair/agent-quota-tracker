@@ -1465,8 +1465,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           }
         }
 
+        const isExpired = agent.auth_status === "expired";
+        const isMissingAuth = agent.auth_status === "missing";
+
+        let authBadge = "";
+        if (isExpired) {
+          authBadge = `<span class="status-badge badge-exhausted" title="${agent.remediation_hint || 'Token expired'}">⚠️ EXPIRED</span>`;
+        } else if (isMissingAuth) {
+          authBadge = `<span class="status-badge badge-inactive" title="${agent.remediation_hint || 'Login required'}">⚠️ NO AUTH</span>`;
+        }
+
         const card = document.createElement("div");
-        card.className = `agent-card ${isExhausted ? 'card-exhausted' : ''}`;
+        card.className = `agent-card ${isExhausted || isExpired ? 'card-exhausted' : ''}`;
 
         const fillClass = isExhausted ? "fill-exhausted" : (agent.used_percent > 80 ? "fill-high" : (agent.used_percent > 50 ? "fill-med" : "fill-low"));
         const statusBadge = agent.is_active
@@ -1486,8 +1496,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         const timerClass = agent.is_active ? "timer-value" : "timer-value inactive";
         const timerText = agent.is_active ? formatSeconds(agent.time_remaining_seconds) : "Window Inactive";
 
-        const pokeBtnLabel = isExhausted ? "⚡ Force Poke" : "⚡ Poke";
-        const pokeBtnClass = isExhausted ? "btn-poke-card force-mode" : "btn-poke-card";
+        let pokeBtnLabel = isExhausted ? "⚡ Force Poke" : "⚡ Poke";
+        let pokeBtnClass = isExhausted ? "btn-poke-card force-mode" : "btn-poke-card";
+        if (isExpired) {
+          pokeBtnLabel = "⚠️ Re-Auth Required";
+          pokeBtnClass = "btn-poke-card force-mode";
+        }
+
+        const authHintBox = (isExpired || isMissingAuth) && agent.remediation_hint ? `
+          <div style="margin-top: 8px; font-size: 0.72rem; padding: 4px 8px; border-radius: 4px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #fca5a5;">
+            🔑 <b>Action:</b> Run <code>${agent.remediation_hint}</code>
+          </div>
+        ` : '';
 
         card.innerHTML = `
           <div>
@@ -1501,6 +1521,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               <div class="status-badges-group">
                 ${statusBadge}
                 ${exhaustedBadge}
+                ${authBadge}
               </div>
             </div>
 
@@ -1514,6 +1535,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 <span class="reset-time-sub">${resetFormatted}</span>
               </div>
             </div>
+            ${authHintBox}
 
             <div class="progress-section">
               <div class="progress-labels">

@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Pure PowerShell implementation to track and poke 5-hour rate limit windows across Claude (CCS), Codex, and AGY.
 
@@ -534,6 +534,8 @@ function Get-AgentData {
                 UsagePct         = "$usedAgy%"
                 WkUsage          = $wkUsedAgy
                 WeeklyReset      = $wkResetAgy
+                AuthStatus       = "valid"
+                RemediationHint  = $null
             }
         }
         elseif ($prov -eq "codex") {
@@ -564,10 +566,12 @@ function Get-AgentData {
                     UsagePct         = "$([Math]::Round($usedCodex, 1))%"
                     WkUsage          = $wkUsedCodex
                     WeeklyReset      = $wkResetCodex
+                    AuthStatus       = "valid"
+                    RemediationHint  = $null
                 }
             } catch {
                 $results += [PSCustomObject]@{
-                    Id = "codex"; Name = $name; Provider = "Codex"; IsActive = $false; State = "○ INACTIVE"; Remaining = "Inactive"; RemainingSeconds = 0; NextReset = "Ready to Poke"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"
+                    Id = "codex"; Name = $name; Provider = "Codex"; IsActive = $false; State = "○ INACTIVE"; Remaining = "Inactive"; RemainingSeconds = 0; NextReset = "Ready to Poke"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"; AuthStatus = "valid"; RemediationHint = $null
                 }
             }
         }
@@ -575,6 +579,9 @@ function Get-AgentData {
             $prof = if ($acc.profile) { $acc.profile } else { $aid }
             $jsonPath = Join-Path $HOME ".ccs\instances\$prof\.claude.json"
             $credsPath = Join-Path $HOME ".ccs\instances\$prof\.credentials.json"
+            $hint = if ($prof -and $prof -notin @("", "default", "system")) { "ccs $prof login" } else { "claude login" }
+            $authStatus = "valid"
+            $remediationHint = $null
 
             # Fallback to standard Claude CLI installation if CCS path does not exist
             if (-not (Test-Path $credsPath)) {
@@ -587,6 +594,29 @@ function Get-AgentData {
                 $stdJson = Join-Path $HOME ".claude.json"
                 if (Test-Path $stdJson) { $jsonPath = $stdJson }
             }
+
+            if (-not (Test-Path $credsPath)) {
+                $authStatus = "missing"
+                $remediationHint = $hint
+            } else {
+                try {
+                    $creds = Get-Content $credsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                    $tok = $creds.claudeAiOauth.accessToken
+                    $expMs = $creds.claudeAiOauth.expiresAt
+                    $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+                    if (-not $tok) {
+                        $authStatus = "missing"
+                        $remediationHint = $hint
+                    } elseif ($expMs -and $nowMs -gt [long]$expMs) {
+                        $authStatus = "expired"
+                        $remediationHint = $hint
+                    }
+                } catch {
+                    $authStatus = "missing"
+                    $remediationHint = $hint
+                }
+            }
+
             try {
                 $fiveHour = $null
                 $sevenDay = $null
@@ -595,12 +625,20 @@ function Get-AgentData {
                     try {
                         $creds = Get-Content $credsPath -Raw -Encoding UTF8 | ConvertFrom-Json
                         $tok = $creds.claudeAiOauth.accessToken
-                        if ($tok) {
+                        if ($tok -and $authStatus -ne "expired") {
                             $headers = @{ "Authorization" = "Bearer $tok"; "User-Agent" = "claude-code/2.1.281" }
-                            $liveResp = Invoke-RestMethod -Uri "https://api.anthropic.com/api/oauth/usage" -Headers $headers -TimeoutSec 3 -ErrorAction Stop
-                            if ($liveResp) {
-                                $fiveHour = $liveResp.five_hour
-                                $sevenDay = $liveResp.seven_day
+                            try {
+                                $liveResp = Invoke-RestMethod -Uri "https://api.anthropic.com/api/oauth/usage" -Headers $headers -TimeoutSec 3 -ErrorAction Stop
+                                if ($liveResp) {
+                                    $fiveHour = $liveResp.five_hour
+                                    $sevenDay = $liveResp.seven_day
+                                }
+                            } catch {
+                                $statusCode = $_.Exception.Response.StatusCode.value__
+                                if ($statusCode -in @(401, 403)) {
+                                    $authStatus = "expired"
+                                    $remediationHint = $hint
+                                }
                             }
                         }
                     } catch {}
@@ -652,27 +690,34 @@ function Get-AgentData {
                     $wkUsed = if ($null -ne $sevenDay.utilization) { "$([Math]::Round([double]$sevenDay.utilization, 1))%" } else { "-" }
                     $wkReset = Format-WeeklyReset $sevenDay.resets_at
 
+                    $stateStr = if ($authStatus -eq "expired") { "⚠️ EXPIRED" } elseif ($authStatus -eq "missing") { "⚠️ NO AUTH" } elseif ($isActive) { "● ACTIVE" } else { "○ INACTIVE" }
+                    $remStr = if ($authStatus -eq "expired") { "Re-auth" } elseif ($authStatus -eq "missing") { "Login req" } else { $remainingStr }
+
                     $results += [PSCustomObject]@{
                         Id               = "claude-$prof"
                         Name             = $name
                         Provider         = "Claude"
                         IsActive         = $isActive
-                        State            = if ($isActive) { "● ACTIVE" } else { "○ INACTIVE" }
-                        Remaining        = $remainingStr
+                        State            = $stateStr
+                        Remaining        = $remStr
                         RemainingSeconds = if ($isActive -and $remSpan) { [int]$remSpan.TotalSeconds } else { 0 }
                         NextReset        = $resetLocal
                         UsagePct         = "$([Math]::Round($used, 1))%"
                         WkUsage          = $wkUsed
                         WeeklyReset      = $wkReset
+                        AuthStatus       = $authStatus
+                        RemediationHint  = $remediationHint
                     }
                 } else {
+                    $stateStr = if ($authStatus -eq "expired") { "⚠️ EXPIRED" } elseif ($authStatus -eq "missing") { "⚠️ NO AUTH" } else { "○ INACTIVE" }
+                    $remStr = if ($authStatus -eq "expired") { "Re-auth" } elseif ($authStatus -eq "missing") { "Login req" } else { "Inactive" }
                     $results += [PSCustomObject]@{
-                        Id = "claude-$prof"; Name = $name; Provider = "Claude"; IsActive = $false; State = "○ INACTIVE"; Remaining = "Inactive"; RemainingSeconds = 0; NextReset = "Ready to Poke"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"
+                        Id = "claude-$prof"; Name = $name; Provider = "Claude"; IsActive = $false; State = $stateStr; Remaining = $remStr; RemainingSeconds = 0; NextReset = "Ready to Poke"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"; AuthStatus = $authStatus; RemediationHint = $remediationHint
                     }
                 }
             } catch {
                 $results += [PSCustomObject]@{
-                    Id = "claude-$prof"; Name = $name; Provider = "Claude"; IsActive = $false; State = "ERROR"; Remaining = "-"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "-"; WkUsage = "-"; WeeklyReset = "-"
+                    Id = "claude-$prof"; Name = $name; Provider = "Claude"; IsActive = $false; State = "ERROR"; Remaining = "-"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "-"; WkUsage = "-"; WeeklyReset = "-"; AuthStatus = $authStatus; RemediationHint = $remediationHint
                 }
             }
         }
@@ -683,18 +728,21 @@ function Get-AgentData {
                     $obj = $rawJson | ConvertFrom-Json
                     $isAct = [bool]$obj.is_active
                     $used = [double]$obj.used_percent
-                    $state = if ($isAct) { "● ACTIVE" } else { "○ INACTIVE" }
+                    $authSt = if ($obj.auth_status) { "$($obj.auth_status)" } else { "valid" }
+                    $remH = if ($obj.remediation_hint) { "$($obj.remediation_hint)" } else { $null }
+                    $state = if ($authSt -eq "expired") { "⚠️ EXPIRED" } elseif ($authSt -eq "missing") { "⚠️ NO AUTH" } elseif ($isAct) { "● ACTIVE" } else { "○ INACTIVE" }
+                    $rem = if ($authSt -eq "expired") { "Re-auth" } elseif ($authSt -eq "missing") { "Login req" } elseif ($isAct) { "Active" } else { "Idle" }
                     $results += [PSCustomObject]@{
-                        Id = $aid; Name = $name; Provider = "Cursor"; IsActive = $isAct; State = $state; Remaining = if ($isAct) { "Active" } else { "Idle" }; RemainingSeconds = 0; NextReset = if ($obj.weekly_resets_at) { "$($obj.weekly_resets_at)" } else { "Monthly" }; UsagePct = "$used%"; WkUsage = if ($obj.weekly_used_percent -ne $null) { "$($obj.weekly_used_percent)%" } else { "-" }; WeeklyReset = if ($obj.weekly_reset_str) { "$($obj.weekly_reset_str)" } else { "-" }
+                        Id = $aid; Name = $name; Provider = "Cursor"; IsActive = $isAct; State = $state; Remaining = $rem; RemainingSeconds = 0; NextReset = if ($obj.weekly_resets_at) { "$($obj.weekly_resets_at)" } else { "Monthly" }; UsagePct = "$used%"; WkUsage = if ($obj.weekly_used_percent -ne $null) { "$($obj.weekly_used_percent)%" } else { "-" }; WeeklyReset = if ($obj.weekly_reset_str) { "$($obj.weekly_reset_str)" } else { "-" }; AuthStatus = $authSt; RemediationHint = $remH
                     }
                 } else {
                     $results += [PSCustomObject]@{
-                        Id = $aid; Name = $name; Provider = "Cursor"; IsActive = $false; State = "○ INACTIVE"; Remaining = "Unconfigured"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"
+                        Id = $aid; Name = $name; Provider = "Cursor"; IsActive = $false; State = "⚠️ NO AUTH"; Remaining = "Login req"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"; AuthStatus = "missing"; RemediationHint = "Open Cursor editor to initialize credentials"
                     }
                 }
             } catch {
                 $results += [PSCustomObject]@{
-                    Id = $aid; Name = $name; Provider = "Cursor"; IsActive = $false; State = "ERROR"; Remaining = "-"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "-"; WkUsage = "-"; WeeklyReset = "-"
+                    Id = $aid; Name = $name; Provider = "Cursor"; IsActive = $false; State = "ERROR"; Remaining = "-"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "-"; WkUsage = "-"; WeeklyReset = "-"; AuthStatus = "valid"; RemediationHint = $null
                 }
             }
         }
@@ -705,18 +753,21 @@ function Get-AgentData {
                     $obj = $rawJson | ConvertFrom-Json
                     $isAct = [bool]$obj.is_active
                     $used = [double]$obj.used_percent
-                    $state = if ($isAct) { "● ACTIVE" } else { "○ INACTIVE" }
+                    $authSt = if ($obj.auth_status) { "$($obj.auth_status)" } else { "valid" }
+                    $remH = if ($obj.remediation_hint) { "$($obj.remediation_hint)" } else { $null }
+                    $state = if ($authSt -eq "expired") { "⚠️ EXPIRED" } elseif ($authSt -eq "missing") { "⚠️ NO AUTH" } elseif ($isAct) { "● ACTIVE" } else { "○ INACTIVE" }
+                    $rem = if ($authSt -eq "expired") { "Re-auth" } elseif ($authSt -eq "missing") { "Login req" } elseif ($isAct) { "Active" } else { "Idle" }
                     $results += [PSCustomObject]@{
-                        Id = $aid; Name = $name; Provider = "Windsurf"; IsActive = $isAct; State = $state; Remaining = if ($isAct) { "Active" } else { "Idle" }; RemainingSeconds = 0; NextReset = "-"; UsagePct = "$used%"; WkUsage = if ($obj.weekly_used_percent -ne $null) { "$($obj.weekly_used_percent)%" } else { "-" }; WeeklyReset = "-"
+                        Id = $aid; Name = $name; Provider = "Windsurf"; IsActive = $isAct; State = $state; Remaining = $rem; RemainingSeconds = 0; NextReset = "-"; UsagePct = "$used%"; WkUsage = if ($obj.weekly_used_percent -ne $null) { "$($obj.weekly_used_percent)%" } else { "-" }; WeeklyReset = if ($obj.weekly_reset_str) { "$($obj.weekly_reset_str)" } else { "-" }; AuthStatus = $authSt; RemediationHint = $remH
                     }
                 } else {
                     $results += [PSCustomObject]@{
-                        Id = $aid; Name = $name; Provider = "Windsurf"; IsActive = $false; State = "○ INACTIVE"; Remaining = "Unconfigured"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"
+                        Id = $aid; Name = $name; Provider = "Windsurf"; IsActive = $false; State = "⚠️ NO AUTH"; Remaining = "Login req"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"; AuthStatus = "missing"; RemediationHint = $null
                     }
                 }
             } catch {
                 $results += [PSCustomObject]@{
-                    Id = $aid; Name = $name; Provider = "Windsurf"; IsActive = $false; State = "ERROR"; Remaining = "-"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "-"; WkUsage = "-"; WeeklyReset = "-"
+                    Id = $aid; Name = $name; Provider = "Windsurf"; IsActive = $false; State = "ERROR"; Remaining = "-"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "-"; WkUsage = "-"; WeeklyReset = "-"; AuthStatus = "valid"; RemediationHint = $null
                 }
             }
         }
@@ -727,18 +778,21 @@ function Get-AgentData {
                     $obj = $rawJson | ConvertFrom-Json
                     $isAct = [bool]$obj.is_active
                     $used = [double]$obj.used_percent
-                    $state = if ($isAct) { "● ACTIVE" } else { "○ INACTIVE" }
+                    $authSt = if ($obj.auth_status) { "$($obj.auth_status)" } else { "valid" }
+                    $remH = if ($obj.remediation_hint) { "$($obj.remediation_hint)" } else { $null }
+                    $state = if ($authSt -eq "expired") { "⚠️ EXPIRED" } elseif ($authSt -eq "missing") { "⚠️ NO AUTH" } elseif ($isAct) { "● ACTIVE" } else { "○ INACTIVE" }
+                    $rem = if ($authSt -eq "expired") { "Re-auth" } elseif ($authSt -eq "missing") { "Login req" } elseif ($obj.time_remaining_str) { "$($obj.time_remaining_str)" } else { "Active" }
                     $results += [PSCustomObject]@{
-                        Id = $aid; Name = $name; Provider = "Copilot"; IsActive = $isAct; State = $state; Remaining = if ($obj.time_remaining_str) { "$($obj.time_remaining_str)" } else { "Active" }; RemainingSeconds = [int]$obj.time_remaining_seconds; NextReset = if ($obj.resets_at) { "$($obj.resets_at)" } else { "-" }; UsagePct = "$used%"; WkUsage = "-"; WeeklyReset = "-"
+                        Id = $aid; Name = $name; Provider = "Copilot"; IsActive = $isAct; State = $state; Remaining = $rem; RemainingSeconds = [int]$obj.time_remaining_seconds; NextReset = if ($obj.resets_at) { "$($obj.resets_at)" } else { "-" }; UsagePct = "$used%"; WkUsage = "-"; WeeklyReset = "-"; AuthStatus = $authSt; RemediationHint = $remH
                     }
                 } else {
                     $results += [PSCustomObject]@{
-                        Id = $aid; Name = $name; Provider = "Copilot"; IsActive = $false; State = "○ INACTIVE"; Remaining = "Unconfigured"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"
+                        Id = $aid; Name = $name; Provider = "Copilot"; IsActive = $false; State = "⚠️ NO AUTH"; Remaining = "Login req"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"; AuthStatus = "missing"; RemediationHint = "gh auth login"
                     }
                 }
             } catch {
                 $results += [PSCustomObject]@{
-                    Id = $aid; Name = $name; Provider = "Copilot"; IsActive = $false; State = "ERROR"; Remaining = "-"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "-"; WkUsage = "-"; WeeklyReset = "-"
+                    Id = $aid; Name = $name; Provider = "Copilot"; IsActive = $false; State = "ERROR"; Remaining = "-"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "-"; WkUsage = "-"; WeeklyReset = "-"; AuthStatus = "valid"; RemediationHint = $null
                 }
             }
         }
@@ -749,18 +803,21 @@ function Get-AgentData {
                     $obj = $rawJson | ConvertFrom-Json
                     $isAct = [bool]$obj.is_active
                     $used = [double]$obj.used_percent
-                    $state = if ($isAct) { "● ACTIVE" } else { "○ INACTIVE" }
+                    $authSt = if ($obj.auth_status) { "$($obj.auth_status)" } else { "valid" }
+                    $remH = if ($obj.remediation_hint) { "$($obj.remediation_hint)" } else { $null }
+                    $state = if ($authSt -eq "expired") { "⚠️ EXPIRED" } elseif ($authSt -eq "missing") { "⚠️ NO AUTH" } elseif ($isAct) { "● ACTIVE" } else { "○ INACTIVE" }
+                    $rem = if ($authSt -eq "expired") { "Re-auth" } elseif ($authSt -eq "missing") { "Login req" } elseif ($isAct) { "Active" } else { "Idle" }
                     $results += [PSCustomObject]@{
-                        Id = $aid; Name = $name; Provider = "Aider"; IsActive = $isAct; State = $state; Remaining = if ($isAct) { "Active" } else { "Idle" }; RemainingSeconds = 0; NextReset = "-"; UsagePct = "$used%"; WkUsage = if ($obj.weekly_used_percent -ne $null) { "$($obj.weekly_used_percent)%" } else { "-" }; WeeklyReset = "-"
+                        Id = $aid; Name = $name; Provider = "Aider"; IsActive = $isAct; State = $state; Remaining = $rem; RemainingSeconds = 0; NextReset = "-"; UsagePct = "$used%"; WkUsage = if ($obj.weekly_used_percent -ne $null) { "$($obj.weekly_used_percent)%" } else { "-" }; WeeklyReset = if ($obj.weekly_reset_str) { "$($obj.weekly_reset_str)" } else { "-" }; AuthStatus = $authSt; RemediationHint = $remH
                     }
                 } else {
                     $results += [PSCustomObject]@{
-                        Id = $aid; Name = $name; Provider = "Aider"; IsActive = $false; State = "○ INACTIVE"; Remaining = "Unconfigured"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"
+                        Id = $aid; Name = $name; Provider = "Aider"; IsActive = $false; State = "⚠️ NO AUTH"; Remaining = "Login req"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "0.0%"; WkUsage = "-"; WeeklyReset = "-"; AuthStatus = "missing"; RemediationHint = $null
                     }
                 }
             } catch {
                 $results += [PSCustomObject]@{
-                    Id = $aid; Name = $name; Provider = "Aider"; IsActive = $false; State = "ERROR"; Remaining = "-"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "-"; WkUsage = "-"; WeeklyReset = "-"
+                    Id = $aid; Name = $name; Provider = "Aider"; IsActive = $false; State = "ERROR"; Remaining = "-"; RemainingSeconds = 0; NextReset = "-"; UsagePct = "-"; WkUsage = "-"; WeeklyReset = "-"; AuthStatus = "valid"; RemediationHint = $null
                 }
             }
         }
@@ -796,7 +853,7 @@ function Show-StatusTable($InputData = $null) {
                 $wkVal = [double]$matches[1]
             }
             $wkDisp = if ($wkVal -ge 100.0) { "⚠️ $($a.WkUsage)" } else { $a.WkUsage }
-            $color = if ($wkVal -ge 100.0) { "Red" } elseif ($a.IsActive) { "White" } else { "DarkGray" }
+            $color = if ($a.AuthStatus -eq "expired") { "Red" } elseif ($a.AuthStatus -eq "missing") { "Yellow" } elseif ($wkVal -ge 100.0) { "Red" } elseif ($a.IsActive) { "White" } else { "DarkGray" }
             $line = "{0,-24} {1,-8} {2,-10} {3,-11} {4,-18} {5,-8} {6,-8} {7}" -f $a.Name, $a.Provider, $a.State, $a.Remaining, $a.NextReset, $a.UsagePct, $wkDisp, $a.WeeklyReset
             Write-Host $line -ForegroundColor $color
         }
@@ -809,9 +866,9 @@ function Show-StatusTable($InputData = $null) {
         Write-Host ("-" * 80) -ForegroundColor DarkGray
         foreach ($a in $data) {
             $shortName = $a.Name.Replace("Google Antigravity (AGY)", "Antigravity").Replace("OpenAI Codex", "Codex").Replace("Claude (", "").Replace(")", "")
-            $shortState = if ($a.IsActive) { "● ACTIVE" } else { "○ INACT" }
+            $shortState = if ($a.AuthStatus -eq "expired") { "⚠️ EXPIRED" } elseif ($a.AuthStatus -eq "missing") { "⚠️ NO AUTH" } elseif ($a.IsActive) { "● ACTIVE" } else { "○ INACT" }
             $parts = $a.Remaining -split " "
-            $shortLeft = if ($parts.Length -ge 2 -and $a.IsActive) { "$($parts[0]) $($parts[1])" } else { $a.Remaining }
+            $shortLeft = if ($a.AuthStatus -eq "expired") { "Re-auth" } elseif ($a.AuthStatus -eq "missing") { "Login req" } elseif ($parts.Length -ge 2 -and $a.IsActive) { "$($parts[0]) $($parts[1])" } else { $a.Remaining }
             $shortReset = $a.NextReset.Replace(" (Today)", "")
             $wkReset = $a.WeeklyReset
             if ($wkReset -and $wkReset -ne "-" -and $wkReset.Contains("(")) {
@@ -825,11 +882,22 @@ function Show-StatusTable($InputData = $null) {
                 $wkVal = [double]$matches[1]
             }
             $wkDisp = if ($wkVal -ge 100.0) { "⚠️$([int]$wkVal)%" } else { $a.WkUsage }
-            $color = if ($wkVal -ge 100.0) { "Red" } elseif ($a.IsActive) { "White" } else { "DarkGray" }
+            $color = if ($a.AuthStatus -eq "expired") { "Red" } elseif ($a.AuthStatus -eq "missing") { "Yellow" } elseif ($wkVal -ge 100.0) { "Red" } elseif ($a.IsActive) { "White" } else { "DarkGray" }
             $line = "{0,-14} {1,-10} {2,-9} {3,-7} {4,-6} {5,-6} {6}" -f $shortName, $shortState, $shortLeft, $shortReset, $a.UsagePct, $wkDisp, $wkReset
             Write-Host $line -ForegroundColor $color
         }
         Write-Host ("=" * 80 + "`n") -ForegroundColor DarkCyan
+    }
+
+    $authIssues = $data | Where-Object { $_.AuthStatus -in @("expired", "missing") }
+    if ($authIssues) {
+        Write-Host "🔐 Authentication Health Alerts:" -ForegroundColor Red
+        foreach ($iss in $authIssues) {
+            $hint = if ($iss.RemediationHint) { " (Run: $($iss.RemediationHint))" } else { "" }
+            $tag = if ($iss.AuthStatus -eq "expired") { "EXPIRED" } else { "NO AUTH" }
+            Write-Host "  ⚠️ $($iss.Name) [$tag]: Authentication required.$hint" -ForegroundColor Yellow
+        }
+        Write-Host ""
     }
     return $data
 }
@@ -1087,6 +1155,12 @@ function Invoke-PokeAgents($forceMode, $targetAgentId, [switch]$NotifyAlert) {
     $pokedList = @()
     foreach ($item in $data) {
         if (-not $item -or -not $item.Name) { continue }
+
+        if (-not $forceMode -and $item.AuthStatus -in @("expired", "missing")) {
+            $hint = if ($item.RemediationHint) { " ($($item.RemediationHint))" } else { "" }
+            Write-Host "  ↷ SKIPPED: $($item.Name.PadRight(25)) Auth $($item.AuthStatus.ToUpper())$hint. Use -Force to override." -ForegroundColor DarkYellow
+            continue
+        }
 
         if ($item.IsActive -and -not $forceMode) {
             Write-Host "  ↷ SKIPPED: $($item.Name.PadRight(25)) Window already ACTIVE ($($item.Remaining) remaining, $($item.UsagePct) used)." -ForegroundColor DarkYellow

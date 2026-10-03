@@ -902,6 +902,8 @@ class AgentInfo:
         status_label: str = "",
         error: Optional[str] = None,
         category: str = "personal",
+        auth_status: str = "valid",
+        remediation_hint: Optional[str] = None,
     ):
         self.id = id
         self.name = name
@@ -918,6 +920,8 @@ class AgentInfo:
         self.status_label = status_label
         self.error = error
         self.category = category
+        self.auth_status = auth_status
+        self.remediation_hint = remediation_hint
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -936,6 +940,8 @@ class AgentInfo:
             "weekly_reset_str": self.weekly_reset_str,
             "status_label": self.status_label,
             "error": self.error,
+            "auth_status": self.auth_status,
+            "remediation_hint": self.remediation_hint,
         }
 
 
@@ -1018,6 +1024,9 @@ def fetch_live_claude_usage(profile: str) -> Optional[dict[str, Any]]:
                 except Exception:
                     pass
                 return data
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            return {"_auth_expired": True}
     except Exception:
         pass
     return None
@@ -1025,14 +1034,44 @@ def fetch_live_claude_usage(profile: str) -> Optional[dict[str, Any]]:
 
 def get_claude_status(profile: str, display_name: str, category: str = "personal") -> AgentInfo:
     creds_path, claude_json = get_claude_paths(profile)
+    hint = f"ccs {profile} login" if (profile and profile not in ("", "default", "system")) else "claude login"
+    auth_status = "valid"
+    remediation_hint = None
+
+    if not creds_path or not creds_path.exists():
+        auth_status = "missing"
+        remediation_hint = hint
+    else:
+        try:
+            creds = json.loads(creds_path.read_text(encoding="utf-8"))
+            oauth = creds.get("claudeAiOauth", {})
+            token = oauth.get("accessToken")
+            if not token:
+                auth_status = "missing"
+                remediation_hint = hint
+            else:
+                expires_at = oauth.get("expiresAt")
+                if expires_at and isinstance(expires_at, (int, float)):
+                    if (time.time() * 1000) > expires_at:
+                        auth_status = "expired"
+                        remediation_hint = hint
+        except Exception:
+            auth_status = "missing"
+            remediation_hint = hint
 
     # 1. Try live API fetch first for real-time instantaneous status
     live_data = fetch_live_claude_usage(profile)
+    if isinstance(live_data, dict) and live_data.get("_auth_expired"):
+        auth_status = "expired"
+        remediation_hint = hint
+        live_data = None
 
     five_hour = {}
     seven_day = {}
 
     if live_data:
+        auth_status = "valid"
+        remediation_hint = None
         five_hour = live_data.get("five_hour") or {}
         seven_day = live_data.get("seven_day") or {}
     elif claude_json and claude_json.exists():
@@ -1051,17 +1090,22 @@ def get_claude_status(profile: str, display_name: str, category: str = "personal
                 status_label="Error",
                 error=str(e),
                 category=category,
+                auth_status=auth_status,
+                remediation_hint=remediation_hint,
             )
     else:
+        status_lbl = "⚠️ EXPIRED" if auth_status == "expired" else "⚠️ NO AUTH"
         return AgentInfo(
             id=f"claude-{profile}",
             name=display_name,
             provider="Claude",
             is_active=False,
             used_percent=0.0,
-            status_label="Profile not found",
+            status_label=status_lbl,
             error=f"Credentials or config not found for profile: {profile}",
             category=category,
+            auth_status=auth_status,
+            remediation_hint=remediation_hint,
         )
 
     used_pct = float(five_hour.get("utilization") or 0.0)
@@ -1096,6 +1140,11 @@ def get_claude_status(profile: str, display_name: str, category: str = "personal
         resets_at_str = None
         label = "Inactive (Ready to Poke)"
 
+    if auth_status == "expired":
+        label = "⚠️ EXPIRED"
+    elif auth_status == "missing" and (not label or label == "Inactive (Ready to Poke)"):
+        label = "⚠️ NO AUTH"
+
     weekly_pct = float(seven_day.get("utilization")) if seven_day.get("utilization") is not None else None
     weekly_resets_at_str = seven_day.get("resets_at")
     weekly_hours, weekly_reset_str = calculate_weekly_reset(weekly_resets_at_str)
@@ -1114,6 +1163,8 @@ def get_claude_status(profile: str, display_name: str, category: str = "personal
         weekly_reset_str=weekly_reset_str,
         status_label=label,
         category=category,
+        auth_status=auth_status,
+        remediation_hint=remediation_hint,
     )
 
 
@@ -1673,9 +1724,11 @@ def get_cursor_status(
             provider="cursor",
             is_active=False,
             used_percent=0.0,
-            status_label="Unconfigured / Offline",
+            status_label="⚠️ NO AUTH",
             error="No Cursor access token or session cookie found. Configure access_token or login to Cursor.",
             category=category,
+            auth_status="missing",
+            remediation_hint="Open Cursor editor to initialize credentials",
         )
 
     url = "https://api2.cursor.sh/auth/usage" if token else "https://www.cursor.com/api/usage"
@@ -1690,8 +1743,20 @@ def get_cursor_status(
         with urllib.request.urlopen(req, timeout=5.0) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        err_msg = f"Cursor token expired or unauthorized ({e.code}). Please re-login to Cursor." if e.code in (401, 403) else f"HTTP {e.code}"
-        return AgentInfo(id=agent_id, name=display_name, provider="cursor", is_active=False, used_percent=0.0, status_label="Error", error=err_msg, category=category)
+        is_auth = e.code in (401, 403)
+        err_msg = f"Cursor token expired or unauthorized ({e.code}). Please re-login to Cursor." if is_auth else f"HTTP {e.code}"
+        return AgentInfo(
+            id=agent_id,
+            name=display_name,
+            provider="cursor",
+            is_active=False,
+            used_percent=0.0,
+            status_label="⚠️ EXPIRED" if is_auth else "Error",
+            error=err_msg,
+            category=category,
+            auth_status="expired" if is_auth else "valid",
+            remediation_hint="Open Cursor editor to refresh session" if is_auth else None,
+        )
     except Exception as ex:
         return AgentInfo(id=agent_id, name=display_name, provider="cursor", is_active=False, used_percent=0.0, status_label="Error", error=str(ex), category=category)
 
@@ -1721,6 +1786,7 @@ def get_cursor_status(
         weekly_reset_str=wk_str,
         status_label="Active" if is_active else "Idle",
         category=category,
+        auth_status="valid",
     )
 
 
@@ -1855,9 +1921,11 @@ def get_copilot_status(
             provider="copilot",
             is_active=False,
             used_percent=0.0,
-            status_label="Unconfigured / Offline",
+            status_label="⚠️ NO AUTH",
             error="No GitHub Copilot token found. Run 'gh auth login' or specify token in config.",
             category=category,
+            auth_status="missing",
+            remediation_hint="gh auth login",
         )
 
     url = "https://api.github.com/copilot_internal/v2/token"
@@ -1865,6 +1933,20 @@ def get_copilot_status(
     try:
         with urllib.request.urlopen(req, timeout=5.0) as resp:
             data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        is_auth = e.code in (401, 403)
+        return AgentInfo(
+            id=agent_id,
+            name=display_name,
+            provider="copilot",
+            is_active=False,
+            used_percent=0.0,
+            status_label="⚠️ EXPIRED" if is_auth else "Error",
+            error=f"Copilot authentication failed ({e.code})" if is_auth else f"HTTP {e.code}",
+            category=category,
+            auth_status="expired" if is_auth else "valid",
+            remediation_hint="gh auth login" if is_auth else None,
+        )
     except Exception as ex:
         return AgentInfo(id=agent_id, name=display_name, provider="copilot", is_active=False, used_percent=0.0, status_label="Error", error=str(ex), category=category)
 
@@ -1872,6 +1954,8 @@ def get_copilot_status(
     resets_str = None
     rem_secs = 0
     is_active = True
+    auth_status = "valid"
+    hint = None
     if exp_ts:
         try:
             exp_dt = datetime.fromtimestamp(exp_ts, tz=timezone.utc)
@@ -1881,6 +1965,8 @@ def get_copilot_status(
                 rem_secs = diff
             else:
                 is_active = False
+                auth_status = "expired"
+                hint = "gh auth login"
         except Exception:
             pass
 
@@ -1892,8 +1978,10 @@ def get_copilot_status(
         used_percent=0.0,
         time_remaining_seconds=rem_secs,
         resets_at=resets_str,
-        status_label="Active" if is_active else "Token Expired",
+        status_label="Active" if is_active else ("⚠️ EXPIRED" if auth_status == "expired" else "Token Expired"),
         category=category,
+        auth_status=auth_status,
+        remediation_hint=hint,
     )
 
 
@@ -2161,6 +2249,15 @@ def run_poke_command(force: bool = False, agent_id: Optional[str] = None, notify
 
     poked_results = []
     for s in statuses:
+        if not force and getattr(s, "auth_status", "valid") in ("expired", "missing"):
+            hint_str = f" ({s.remediation_hint})" if getattr(s, "remediation_hint", None) else ""
+            print(f"  ↷ SKIPPED: {s.name:<25} Auth {s.auth_status.upper()}{hint_str}. Use --force to override.")
+            try:
+                record_poke(s.id, s.name, "skipped", f"Auth {s.auth_status.upper()}{hint_str}")
+            except Exception:
+                pass
+            continue
+
         if s.is_active and not force:
             print(f"  ↷ SKIPPED: {s.name:<25} Window already ACTIVE ({s.time_remaining_str} remaining, {s.used_percent}% used).")
             try:
@@ -2638,8 +2735,18 @@ def print_status_table(as_json: bool = False, statuses: Optional[list[AgentInfo]
 
         for s in statuses:
             name = s.name.replace(" (AGY)", "").replace("Google Antigravity", "Antigravity")
-            state_text = Text("● ACTIVE", style="bold green") if s.is_active else Text("○ INACTIVE", style="dim white")
-            rem_text = Text(s.time_remaining_str, style="bold cyan") if s.is_active else Text("Ready", style="dim yellow")
+            if getattr(s, "auth_status", "valid") == "expired":
+                state_text = Text("⚠️ EXPIRED", style="bold red")
+                rem_text = Text("Re-auth", style="bold red")
+            elif getattr(s, "auth_status", "valid") == "missing":
+                state_text = Text("⚠️ NO AUTH", style="bold yellow")
+                rem_text = Text("Login req", style="bold yellow")
+            elif s.is_active:
+                state_text = Text("● ACTIVE", style="bold green")
+                rem_text = Text(s.time_remaining_str, style="bold cyan")
+            else:
+                state_text = Text("○ INACTIVE", style="dim white")
+                rem_text = Text("Ready", style="dim yellow")
             pct_val = round(s.used_percent, 1)
             pct_style = "bold red" if pct_val > 80 else ("bold yellow" if pct_val > 50 else "bold green")
             usage_text = Text(f"{pct_val}%", style=pct_style)
@@ -2684,6 +2791,19 @@ def print_status_table(as_json: bool = False, statuses: Optional[list[AgentInfo]
             )
 
         console.print(table)
+        auth_issues = [s for s in statuses if getattr(s, "auth_status", "valid") in ("expired", "missing")]
+        if auth_issues:
+            try:
+                from rich.panel import Panel
+                lines = []
+                for s in auth_issues:
+                    icon = "⚠️" if s.auth_status == "expired" else "ℹ️"
+                    tag = "EXPIRED" if s.auth_status == "expired" else "NO AUTH"
+                    hint = f" • Run: [bold cyan]{s.remediation_hint}[/bold cyan]" if s.remediation_hint else ""
+                    lines.append(f"  {icon} [bold red]{s.name}[/bold red] [{tag}]: {s.error or 'Authentication required.'}{hint}")
+                console.print(Panel("\n".join(lines), title="[bold red]🔐 Authentication Health Alerts[/bold red]", border_style="red", expand=False))
+            except Exception:
+                pass
         print()
         return statuses
     except Exception:
@@ -2703,7 +2823,19 @@ def print_status_table(as_json: bool = False, statuses: Optional[list[AgentInfo]
         print("-" * bar_len)
 
         for s in statuses:
-            state_str = "● ACTIVE" if s.is_active else "○ INACTIVE"
+            if getattr(s, "auth_status", "valid") == "expired":
+                state_str = "⚠️ EXPIRED"
+                rem_str = "Re-auth"
+            elif getattr(s, "auth_status", "valid") == "missing":
+                state_str = "⚠️ NO AUTH"
+                rem_str = "Login req"
+            elif s.is_active:
+                state_str = "● ACTIVE"
+                rem_str = s.time_remaining_str
+            else:
+                state_str = "○ INACTIVE"
+                rem_str = "Ready to Poke"
+
             reset_str = "Ready to Poke"
             if s.resets_at:
                 try:
@@ -2718,7 +2850,7 @@ def print_status_table(as_json: bool = False, statuses: Optional[list[AgentInfo]
             else:
                 wk_usage = "-"
             wk_reset = s.weekly_reset_str
-            print(f"{s.name:<24} {s.provider:<8} {state_str:<10} {s.time_remaining_str:<11} {reset_str:<18} {usage_str:<8} {wk_usage:<8} {wk_reset}")
+            print(f"{s.name:<24} {s.provider:<8} {state_str:<10} {rem_str:<11} {reset_str:<18} {usage_str:<8} {wk_usage:<8} {wk_reset}")
 
         print("=" * bar_len + "\n")
     else:
@@ -2732,9 +2864,20 @@ def print_status_table(as_json: bool = False, statuses: Optional[list[AgentInfo]
 
         for s in statuses:
             name = s.name.replace("Google Antigravity (AGY)", "Antigravity").replace("OpenAI Codex", "Codex").replace("Claude (", "").replace(")", "")
-            state_str = "● ACTIVE" if s.is_active else "○ INACT"
-            parts = s.time_remaining_str.split()
-            left_str = f"{parts[0]} {parts[1]}" if (len(parts) >= 2 and s.is_active) else (s.time_remaining_str if s.is_active else "Ready")
+            if getattr(s, "auth_status", "valid") == "expired":
+                state_str = "⚠️ EXPIRED"
+                left_str = "Re-auth"
+            elif getattr(s, "auth_status", "valid") == "missing":
+                state_str = "⚠️ NO AUTH"
+                left_str = "Login req"
+            elif s.is_active:
+                state_str = "● ACTIVE"
+                parts = s.time_remaining_str.split()
+                left_str = f"{parts[0]} {parts[1]}" if (len(parts) >= 2 and s.is_active) else (s.time_remaining_str if s.is_active else "Ready")
+            else:
+                state_str = "○ INACT"
+                left_str = "Ready"
+
             reset_str = "Ready"
             if s.resets_at:
                 try:
@@ -2758,7 +2901,15 @@ def print_status_table(as_json: bool = False, statuses: Optional[list[AgentInfo]
             print(f"{name:<14} {state_str:<10} {left_str:<9} {reset_str:<7} {usage_str:<6} {wk_usage:<6} {wk_reset}")
 
         print("=" * bar_len + "\n")
-        return statuses
+
+    auth_issues = [s for s in statuses if getattr(s, "auth_status", "valid") in ("expired", "missing")]
+    if auth_issues:
+        print("🔐 Authentication Health Alerts:")
+        for s in auth_issues:
+            hint = f" (Run: {s.remediation_hint})" if s.remediation_hint else ""
+            print(f"  ⚠️ {s.name} [{s.auth_status.upper()}]: {s.error or 'Authentication required.'}{hint}")
+        print()
+    return statuses
 
 
 # ---------------------------------------------------------------------------

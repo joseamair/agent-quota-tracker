@@ -116,8 +116,18 @@ def build_status_table(
         table.add_column("Weekly Reset", justify="left", style="cyan", no_wrap=True)
 
         for s in statuses:
-            state_text = Text("● ACTIVE", style="bold green") if s.is_active else Text("○ INACTIVE", style="dim white")
-            rem_text = Text(s.time_remaining_str, style="bold cyan") if s.is_active else Text("Ready to Poke", style="dim yellow")
+            if s.auth_status == "expired":
+                state_text = Text("⚠️ EXPIRED", style="bold red")
+                rem_text = Text("Re-auth", style="bold red")
+            elif s.auth_status == "missing":
+                state_text = Text("⚠️ NO AUTH", style="bold yellow")
+                rem_text = Text("Login req", style="bold yellow")
+            elif s.is_active:
+                state_text = Text("● ACTIVE", style="bold green")
+                rem_text = Text(s.time_remaining_str, style="bold cyan")
+            else:
+                state_text = Text("○ INACTIVE", style="dim white")
+                rem_text = Text("Ready to Poke", style="dim yellow")
             pct_val = round(s.used_percent, 1)
             pct_style = "bold red" if pct_val > 80 else ("bold yellow" if pct_val > 50 else "bold green")
             usage_text = Text(f"{pct_val}%", style=pct_style)
@@ -210,13 +220,23 @@ def build_status_table(
 
         for s in statuses:
             name = s.name.replace("Google Antigravity (AGY)", "Antigravity").replace("OpenAI Codex", "Codex").replace("Claude (", "").replace(")", "")
-            state_text = Text("● ACTIVE", style="bold green") if s.is_active else Text("○ INACT", style="dim white")
-            parts = s.time_remaining_str.split()
-            if len(parts) >= 2 and s.is_active:
-                left_str = f"{parts[0]} {parts[1]}"
+            if s.auth_status == "expired":
+                state_text = Text("⚠️ EXPIRED", style="bold red")
+                rem_text = Text("Re-auth", style="bold red")
+            elif s.auth_status == "missing":
+                state_text = Text("⚠️ NO AUTH", style="bold yellow")
+                rem_text = Text("Login req", style="bold yellow")
+            elif s.is_active:
+                state_text = Text("● ACTIVE", style="bold green")
+                parts = s.time_remaining_str.split()
+                if len(parts) >= 2 and s.is_active:
+                    left_str = f"{parts[0]} {parts[1]}"
+                else:
+                    left_str = s.time_remaining_str
+                rem_text = Text(left_str, style="bold cyan")
             else:
-                left_str = s.time_remaining_str if s.is_active else "Ready"
-            rem_text = Text(left_str, style="bold cyan") if s.is_active else Text("Ready", style="dim yellow")
+                state_text = Text("○ INACT", style="dim white")
+                rem_text = Text("Ready", style="dim yellow")
 
             pct_val = int(round(s.used_percent))
             pct_style = "bold red" if pct_val > 80 else ("bold yellow" if pct_val > 50 else "bold green")
@@ -273,10 +293,20 @@ def build_status_table(
 
         for s in statuses:
             name = s.name.replace("Google Antigravity (AGY)", "Antigravity").replace("OpenAI Codex", "Codex").replace("Claude (", "").replace(")", "")
-            state_text = Text("● ACT", style="bold green") if s.is_active else Text("○ OFF", style="dim white")
-            parts = s.time_remaining_str.split()
-            left_str = f"{parts[0]} {parts[1]}" if (len(parts) >= 2 and s.is_active) else (s.time_remaining_str if s.is_active else "Ready")
-            rem_text = Text(left_str, style="bold cyan") if s.is_active else Text("Ready", style="dim yellow")
+            if s.auth_status == "expired":
+                state_text = Text("⚠️ EXP", style="bold red")
+                rem_text = Text("Re-auth", style="bold red")
+            elif s.auth_status == "missing":
+                state_text = Text("⚠️ AUTH", style="bold yellow")
+                rem_text = Text("Login", style="bold yellow")
+            elif s.is_active:
+                state_text = Text("● ACT", style="bold green")
+                parts = s.time_remaining_str.split()
+                left_str = f"{parts[0]} {parts[1]}" if (len(parts) >= 2 and s.is_active) else (s.time_remaining_str if s.is_active else "Ready")
+                rem_text = Text(left_str, style="bold cyan")
+            else:
+                state_text = Text("○ OFF", style="dim white")
+                rem_text = Text("Ready", style="dim yellow")
             pct_val = int(round(s.used_percent))
             pct_style = "bold red" if pct_val > 80 else ("bold yellow" if pct_val > 50 else "bold green")
             usage_text = Text(f"{pct_val}%", style=pct_style)
@@ -302,6 +332,7 @@ def print_status_table(
     as_json: bool = False,
     term_w: Optional[int] = None,
     statuses: Optional[list[AgentStatus]] = None,
+    notify: bool = False,
 ) -> list[AgentStatus]:
     if statuses is None:
         statuses = get_all_statuses()
@@ -315,6 +346,26 @@ def print_status_table(
     active_console = Console(legacy_windows=False, width=width)
     active_console.print()
     active_console.print(table)
+
+    # Check for authentication issues to display alert panel
+    auth_issues = [s for s in statuses if s.auth_status in ("expired", "missing")]
+    if auth_issues:
+        lines = []
+        for s in auth_issues:
+            icon = "⚠️" if s.auth_status == "expired" else "ℹ️"
+            tag = "EXPIRED" if s.auth_status == "expired" else "NO AUTH"
+            hint = f" • Run: [bold cyan]{s.remediation_hint}[/bold cyan]" if s.remediation_hint else ""
+            lines.append(f"  {icon} [bold red]{s.name}[/bold red] [{tag}]: {s.locked_reason or 'Authentication required.'}{hint}")
+        active_console.print(Panel("\n".join(lines), title="[bold red]🔐 Authentication Health Alerts[/bold red]", border_style="red", expand=False))
+
+        if notify:
+            expired_names = [s.name for s in auth_issues if s.auth_status == "expired"]
+            if expired_names:
+                send_notification(
+                    "🔐 Agent Token Expired",
+                    f"{', '.join(expired_names)}: OAuth token expired. Please re-authenticate."
+                )
+
     active_console.print()
     return statuses
 

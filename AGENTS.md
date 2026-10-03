@@ -194,6 +194,16 @@ To automate this strategy without manual terminal loops, the following features 
   - Interactive Web Dashboard SVG 7-day velocity burn-down chart, 24-hour diurnal distribution, and summary cards.
   - Full Tri-Engine Parity across modular Python package (`src/agent_quota_tracker/history.py`), standalone runner (`agents.py`), and native PowerShell (`agents_native.ps1 -Analytics`).
 
+### Feature 10: Proactive Token Expiration & Auth Health Guard [DELIVERED - v1.3.0]
+- **Tracking Issue**: [#46](https://github.com/joseamair/agent-quota-tracker/issues/46)
+- **Architecture**:
+  - Local pre-flight inspection of OAuth credential caches (`~/.ccs/instances/<profile>/.credentials.json`, `~/.claude/`, Copilot internal tokens) reading `expiresAt` epoch millisecond timestamps before making external network calls.
+  - Automatic detection and graceful interception of HTTP 401/403 responses across all provider APIs.
+  - Prominent visual indicators: bold red `⚠️ EXPIRED` and bold yellow `⚠️ NO AUTH` with `Re-auth` / `Login req` status labels across all CLI tables and Web Dashboard cards.
+  - Dedicated `🔐 Authentication Health Alerts` remediation panel with exact terminal commands to restore authentication (`ccs <profile> login`, `claude login`, `gh auth login`).
+  - Safe skip guard preventing automated poke routines (`--poke`, `--auto`, `--poke-watch`, `--poke-at`) from dispatching prompts to expired accounts without `--force`.
+  - Zero third-party dependencies; full Tri-Engine Parity across modular Python package, standalone runner (`agents.py`), and pure native PowerShell (`agents_native.ps1`).
+
 ---
 
 ## 6. Security & Isolation Principles

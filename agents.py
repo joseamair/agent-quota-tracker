@@ -2438,11 +2438,20 @@ def run_auto_checker_loop(
     """
     notify_str = " • Notifications: ON" if notify else ""
     force_str = " • Force: ON" if force else ""
-    print(f"\n================================================================================================================================")
-    print(f"  ⚡ AUTONOMOUS QUOTA AUTO-CHECKER STARTED")
-    print(f"  Continuous monitoring loop: live-updating table, waits for window reset, primes, and repeats.")
-    print(f"  Mode: Adaptive Quota Priming{notify_str}{force_str} • Live Stream (Refresh: {refresh_interval}s) • Press Ctrl+C to terminate.")
-    print(f"================================================================================================================================\n")
+    try:
+        from rich.console import Console
+        from rich.panel import Panel
+        Console().print(Panel(
+            f"[bold cyan]⚡ Autonomous Quota Auto-Checker Started[/bold cyan]\n"
+            f"[dim]Continuous monitoring loop: live-updating table, waits for window reset, primes, and repeats.\n"
+            f"Mode: Adaptive Quota Priming{notify_str}{force_str} • Live Stream (Refresh: {refresh_interval}s) • Press Ctrl+C to terminate.[/dim]"
+        ))
+    except Exception:
+        print(f"\n================================================================================================================================")
+        print(f"  ⚡ AUTONOMOUS QUOTA AUTO-CHECKER STARTED")
+        print(f"  Continuous monitoring loop: live-updating table, waits for window reset, primes, and repeats.")
+        print(f"  Mode: Adaptive Quota Priming{notify_str}{force_str} • Live Stream (Refresh: {refresh_interval}s) • Press Ctrl+C to terminate.")
+        print(f"================================================================================================================================\n")
 
     cycle = 1
     try:
@@ -2602,13 +2611,88 @@ def print_status_table(as_json: bool = False, statuses: Optional[list[AgentInfo]
         print(json.dumps([s.to_dict() for s in statuses], indent=2))
         return statuses
 
+    now_dt = datetime.now()
+    now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    # If rich is installed in environment, render modern styled table
+    try:
+        from rich.console import Console
+        from rich.table import Table
+        from rich.text import Text
+
+        console = Console()
+        table = Table(
+            title=f"[bold cyan]⚡ AI Agents 5-Hour & Weekly Quota Status[/bold cyan]  [dim]•  Checked: {now_str}[/dim]",
+            header_style="bold magenta",
+            border_style="bright_blue",
+            show_lines=False,
+        )
+        table.add_column("Account", style="bold white", no_wrap=True)
+        table.add_column("Provider", style="cyan", justify="center", no_wrap=True)
+        table.add_column("State", justify="center", no_wrap=True)
+        table.add_column("5h Left", justify="right", style="bold", no_wrap=True)
+        table.add_column("5h Reset", justify="center", no_wrap=True)
+        table.add_column("5h %", justify="right", no_wrap=True)
+        table.add_column("Wk %", justify="right", no_wrap=True)
+        table.add_column("Weekly Reset", justify="left", style="cyan", no_wrap=True)
+
+        for s in statuses:
+            name = s.name.replace(" (AGY)", "").replace("Google Antigravity", "Antigravity")
+            state_text = Text("● ACTIVE", style="bold green") if s.is_active else Text("○ INACTIVE", style="dim white")
+            rem_text = Text(s.time_remaining_str, style="bold cyan") if s.is_active else Text("Ready", style="dim yellow")
+            pct_val = round(s.used_percent, 1)
+            pct_style = "bold red" if pct_val > 80 else ("bold yellow" if pct_val > 50 else "bold green")
+            usage_text = Text(f"{pct_val}%", style=pct_style)
+            if s.weekly_used_percent is not None:
+                wk_val = round(s.weekly_used_percent, 1)
+                if wk_val >= 100.0:
+                    weekly_text = Text(f"⚠️ {wk_val}%", style="bold red")
+                elif wk_val >= 90.0:
+                    weekly_text = Text(f"{wk_val}%", style="bold red")
+                elif wk_val >= 75.0:
+                    weekly_text = Text(f"{wk_val}%", style="bold yellow")
+                else:
+                    weekly_text = Text(f"{wk_val}%", style="dim")
+            else:
+                weekly_text = Text("-", style="dim")
+
+            reset_str = "Ready"
+            if s.resets_at:
+                try:
+                    local_dt = datetime.fromisoformat(s.resets_at.replace("Z", "+00:00")).astimezone()
+                    reset_str = local_dt.strftime("%H:%M (Today)")
+                except Exception:
+                    reset_str = s.resets_at[:19]
+
+            wk_reset = s.weekly_reset_str
+            if wk_reset != "-" and "(" in wk_reset:
+                parts = wk_reset.split("(")
+                h_part = parts[0].strip().replace(".0h", "h")
+                d_part = parts[1].split(",")[0].strip(" )")
+                wk_reset = f"{h_part} ({d_part})"
+            weekly_reset = Text(wk_reset, style="bold cyan" if wk_reset != "-" else "dim")
+
+            table.add_row(
+                name,
+                s.provider.upper(),
+                state_text,
+                rem_text,
+                reset_str,
+                usage_text,
+                weekly_text,
+                weekly_reset,
+            )
+
+        console.print(table)
+        print()
+        return statuses
+    except Exception:
+        pass
+
     try:
         term_w = shutil.get_terminal_size(fallback=(110, 24)).columns
     except Exception:
         term_w = 110
-
-    now_dt = datetime.now()
-    now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
 
     if term_w >= 120:
         bar_len = 110

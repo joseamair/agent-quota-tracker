@@ -31,13 +31,17 @@ foreach ($arg in $ScriptArgs) {
     }
 }
 
-# 1. Prefer uv with explicit project anchor
+# 1. Prefer uv with explicit project anchor and --no-sync to avoid Windows file locks on active binaries
 if (Get-Command uv -ErrorAction SilentlyContinue) {
-    & uv run --project "$PSScriptRoot" agents @pyArgs
+    & uv run --no-sync --project "$PSScriptRoot" agents @pyArgs
+    if ($LASTEXITCODE -eq 0) { exit 0 }
+
+    # Fallback to direct module execution via uv without relying on .exe binary
+    & uv run --no-sync --project "$PSScriptRoot" python -m agent_quota_tracker.cli @pyArgs
     if ($LASTEXITCODE -eq 0) { exit 0 }
 
     # Fallback to direct script execution via uv if console entrypoint had issues
-    & uv run --project "$PSScriptRoot" python "$PSScriptRoot\agents.py" @pyArgs
+    & uv run --no-sync --project "$PSScriptRoot" python "$PSScriptRoot\agents.py" @pyArgs
     if ($LASTEXITCODE -eq 0) { exit 0 }
 }
 

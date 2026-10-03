@@ -484,5 +484,62 @@ def test_codex_poke_skipped_weekly_exhausted():
             assert "Weekly quota exhausted" in res.message
 
 
+def test_claude_credentials_expired():
+    from agent_quota_tracker.trackers.claude import ClaudeTracker
+    tracker = ClaudeTracker("work")
+    # Expired 1 hour ago
+    expired_ms = int((time.time() - 3600) * 1000)
+    mock_creds = {
+        "claudeAiOauth": {
+            "accessToken": "sk-ant-test-token",
+            "expiresAt": expired_ms,
+        }
+    }
+    with patch.object(tracker, "_read_credentials", return_value=mock_creds):
+        with patch.object(tracker, "_fetch_live_usage", return_value=None):
+            with patch.object(tracker, "_read_claude_json", return_value=None):
+                status = tracker.get_status()
+                assert status.auth_status == "expired"
+                assert "EXPIRED" in status.status_label
+                assert "ccs work login" in (status.remediation_hint or "")
+
+
+def test_claude_http_401_detected():
+    import urllib.error
+    from agent_quota_tracker.trackers.claude import ClaudeTracker
+    tracker = ClaudeTracker("personal")
+    valid_future_ms = int((time.time() + 3600) * 1000)
+    mock_creds = {
+        "claudeAiOauth": {
+            "accessToken": "sk-ant-test-token",
+            "expiresAt": valid_future_ms,
+        }
+    }
+    with patch.object(tracker, "_read_credentials", return_value=mock_creds):
+        with patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError("https://api.anthropic.com", 401, "Unauthorized", {}, None)):
+            with patch.object(tracker, "_read_claude_json", return_value=None):
+                status = tracker.get_status()
+                assert status.auth_status == "expired"
+                assert "EXPIRED" in status.status_label
+
+
+def test_claude_poke_skipped_when_expired():
+    from agent_quota_tracker.trackers.claude import ClaudeTracker
+    tracker = ClaudeTracker("work")
+    expired_ms = int((time.time() - 3600) * 1000)
+    mock_creds = {
+        "claudeAiOauth": {
+            "accessToken": "sk-ant-test-token",
+            "expiresAt": expired_ms,
+        }
+    }
+    with patch.object(tracker, "_read_credentials", return_value=mock_creds):
+        with patch.object(tracker, "_fetch_live_usage", return_value=None):
+            with patch.object(tracker, "_read_claude_json", return_value=None):
+                res = tracker.poke(force=False)
+                assert res.action_taken == "skipped"
+                assert "expired" in res.message.lower()
+
+
 
 

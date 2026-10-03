@@ -123,6 +123,19 @@ class CursorTracker(BaseTracker):
         data, err = self._query_usage_api(token)
 
         if err:
+            auth_status = "valid"
+            remediation_hint = None
+            if "401" in err or "403" in err:
+                auth_status = "expired"
+                remediation_hint = "Open Cursor editor to refresh session."
+                status_label = "⚠️ EXPIRED"
+            elif "No Cursor" in err or "token" in err.lower():
+                auth_status = "missing"
+                remediation_hint = "Open Cursor or set access_token in agents.config.json."
+                status_label = "Unconfigured / Offline"
+            else:
+                status_label = "Error"
+
             return AgentStatus(
                 id=self.agent_id,
                 name=self.display_name,
@@ -130,8 +143,11 @@ class CursorTracker(BaseTracker):
                 category=self.category,
                 is_active=False,
                 used_percent=0.0,
-                status_label="Unconfigured / Offline" if "No Cursor" in err else "Error",
+                status_label=status_label,
                 error=err,
+                auth_status=auth_status,
+                remediation_hint=remediation_hint,
+                locked_reason=f"Cursor auth issue ({err}). {remediation_hint}" if remediation_hint else None,
             )
 
         if not data:
@@ -144,6 +160,7 @@ class CursorTracker(BaseTracker):
                 used_percent=0.0,
                 status_label="No Data",
                 error="Empty response from Cursor usage API",
+                auth_status="valid",
             )
 
         # Parse usage data: common keys include 'gpt-4', 'claude-3.5-sonnet', or 'fastRequests'
@@ -184,9 +201,6 @@ class CursorTracker(BaseTracker):
         )
 
     def poke(self, prompt: str = "Hello, how are you doing?", force: bool = False) -> PokeResult:
-        """Cursor runs as an interactive IDE rather than a headless CLI.
-        Checks CLI binary existence if available, or returns informational poke result.
-        """
         cursor_bin = shutil.which("cursor")
         if cursor_bin:
             try:

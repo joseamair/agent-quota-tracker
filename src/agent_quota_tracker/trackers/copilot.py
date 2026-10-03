@@ -110,7 +110,17 @@ class CopilotTracker(BaseTracker):
         tok = self._get_token()
         data, err = self._query_copilot_token_api(tok)
 
+        remediation_hint = "Run 'gh auth login' with copilot permissions."
         if err:
+            auth_status = "valid"
+            if "unauthorized" in err.lower() or "401" in err or "403" in err:
+                auth_status = "expired"
+                status_label = "⚠️ EXPIRED"
+            elif "No GitHub" in err:
+                auth_status = "missing"
+                status_label = "Unconfigured / Offline"
+            else:
+                status_label = "Error"
             return AgentStatus(
                 id=self.agent_id,
                 name=self.display_name,
@@ -118,8 +128,11 @@ class CopilotTracker(BaseTracker):
                 category=self.category,
                 is_active=False,
                 used_percent=0.0,
-                status_label="Unconfigured / Offline" if "No GitHub" in err else "Error",
+                status_label=status_label,
                 error=err,
+                auth_status=auth_status,
+                remediation_hint=remediation_hint,
+                locked_reason=f"Copilot auth error: {err}. {remediation_hint}",
             )
 
         if not data:
@@ -132,6 +145,7 @@ class CopilotTracker(BaseTracker):
                 used_percent=0.0,
                 status_label="No Data",
                 error="Empty response from Copilot token API",
+                auth_status="valid",
             )
 
         # Copilot token response includes expires_at (unix timestamp)
@@ -140,6 +154,7 @@ class CopilotTracker(BaseTracker):
         rem_secs = 0
         rem_str = "Active"
         is_active = True
+        auth_status = "valid"
 
         if expires_at_ts:
             try:
@@ -153,8 +168,12 @@ class CopilotTracker(BaseTracker):
                 else:
                     is_active = False
                     rem_str = "Token Expired"
+                    auth_status = "expired"
             except Exception:
                 pass
+
+        status_label = "Active" if is_active else ("⚠️ EXPIRED" if auth_status == "expired" else "Token Expired")
+        locked_reason = f"Copilot token expired. {remediation_hint}" if auth_status == "expired" else None
 
         return AgentStatus(
             id=self.agent_id,
@@ -166,7 +185,10 @@ class CopilotTracker(BaseTracker):
             time_remaining_seconds=rem_secs,
             time_remaining_str=rem_str,
             resets_at=resets_at_str,
-            status_label="Active" if is_active else "Token Expired",
+            status_label=status_label,
+            auth_status=auth_status,
+            remediation_hint=remediation_hint,
+            locked_reason=locked_reason,
             details={
                 "sku": data.get("sku", "copilot_for_individual"),
                 "chat_enabled": data.get("chat_enabled", True),

@@ -58,6 +58,12 @@ def test_generate_html_file(tmp_path):
     assert "AI Agents Quota Dashboard" in content
 
 
+@pytest.fixture(autouse=True)
+def mock_default_dashboard_statuses():
+    with patch("agent_quota_tracker.dashboard.get_all_statuses", return_value=[]):
+        yield
+
+
 @pytest.fixture(scope="module")
 def dashboard_test_server():
     import agent_quota_tracker.dashboard as db_mod

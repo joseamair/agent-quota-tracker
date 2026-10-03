@@ -100,7 +100,7 @@ For software engineers working full workdays, **when** you start your 5-hour win
 
 ## 5. Roadmap Architecture: Autonomous Watchdog & Target-Time Scheduling
 
-To automate this strategy without manual terminal loops, the following features have been implemented and released in **v1.1.0** and **v1.2.0**:
+To automate this strategy without manual terminal loops, the following features have been implemented and released in **v1.1.0**, **v1.2.0**, and **v1.2.1**:
 
 ### Feature 1: Automated Poke Watchdog Mode (`--poke-watch`) [DELIVERED - v1.1.0]
 - **Tracking Issue**: [#18](https://github.com/joseamair/agent-quota-tracker/issues/18)
@@ -152,18 +152,19 @@ To automate this strategy without manual terminal loops, the following features 
   - Persistent run logging to `~/.agent_quota_tracker/schedule.log` capturing timestamped installations, poke outcomes, and task removals.
   - Zero third-party dependencies; full Tri-Engine Parity across Python package, standalone `agents.py`, and pure PowerShell (`agents_native.ps1`).
 
-### Feature 6: Autonomous Continuous Auto-Checker Loop (`agents auto`, `--auto-poke`) [DELIVERED - v1.2.0]
-- **Tracking Issue**: [#31](https://github.com/joseamair/agent-quota-tracker/issues/31)
-- **Command**: `agents auto`, `agents --auto`, `agents --auto-poke`
+### Feature 6: Autonomous Continuous Auto-Checker Loop (`agents auto`, `--auto-poke`) [DELIVERED - v1.2.0, UPDATED - v1.2.1]
+- **Tracking Issues**: [#31](https://github.com/joseamair/agent-quota-tracker/issues/31), [#42](https://github.com/joseamair/agent-quota-tracker/pull/42)
+- **Command**: `agents auto`, `agents --auto`, `agents --auto-poke` (options: `--refresh-interval 15` / `-ri 15`, `--notify` / `-n`)
 - **Architecture**:
   - Continuous autonomous monitoring and priming task that:
-    1. Displays the live quota status table (`agents --status`).
-    2. Immediately primes any accounts that are currently idle and ready to poke (skipping accounts with $\ge 100\%$ weekly usage).
-    3. Computes the earliest active 5-hour window reset time across non-exhausted accounts.
-    4. Displays a live ticking terminal countdown: `⏳ Next poke target at <HH:MM:SS> (<Agent Name> (<time> left)) • Press Ctrl+C to stop`.
-    5. When the countdown completes, automatically primes newly available quota windows and repeats in an infinite loop.
+    1. Immediately primes any accounts that are currently idle and ready to poke (skipping accounts with $\ge 100\%$ weekly usage).
+    2. Displays and live-updates the full status table in-place using ANSI redraw / `rich.live.Live` with second-by-second countdowns for all active accounts.
+    3. Runs background zero-prompt-token quota refetching (configurable via `--refresh-interval`, default 15s) querying local cache and provider OAuth usage endpoints to keep `5h%` and `Wk%` numbers fresh as coding work continues.
+    4. Features Early Idle Detection: automatically trips immediate window priming if an account's quota resets or cools down earlier than the scheduled timer.
+    5. Computes earliest reset time and displays a live ticking terminal countdown: `⏳ Next poke target: <HH:MM:SS> (<Agent Name> (<time> left)) • Press Ctrl+C to stop`.
+    6. When the countdown completes, automatically primes newly available quota windows and repeats the cycle endlessly.
   - Clean `Ctrl+C` interrupt handling with zero orphaned processes.
-  - Zero third-party dependencies; full Tri-Engine Parity across modular Python package (`run_auto_checker_loop`), standalone `agents.py`, and pure native PowerShell (`agents_native.ps1 -Auto`).
+  - Zero third-party dependencies; full Tri-Engine Parity across modular Python package (`run_auto_checker_loop`), standalone runner (`agents.py`), and pure native PowerShell (`agents_native.ps1 -Auto`).
 
 ### Feature 7: Web Dashboard v2 with Real-Time SSE & Interactive Controls [DELIVERED - v1.2.0]
 - **Tracking Issue**: [#24](https://github.com/joseamair/agent-quota-tracker/issues/24)

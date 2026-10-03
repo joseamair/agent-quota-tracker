@@ -29,6 +29,24 @@ def test_dashboard_html_template_contains_v2_features():
     assert "schedule-modal" in HTML_TEMPLATE
     assert "stream-indicator" in HTML_TEMPLATE
     assert "btn-poke-all" in HTML_TEMPLATE
+    assert "chart-metric-selector" in HTML_TEMPLATE
+    assert "chart-tooltip" in HTML_TEMPLATE
+    assert "btn-reset-zoom" in HTML_TEMPLATE
+
+
+def test_dashboard_interactive_chart_features():
+    assert "data-metric=\"used_percent\"" in HTML_TEMPLATE
+    assert "data-metric=\"weekly_used_percent\"" in HTML_TEMPLATE
+    assert "data-metric=\"time_remaining\"" in HTML_TEMPLATE
+    assert "data-metric=\"tokens\"" in HTML_TEMPLATE
+    assert "setChartMetric(" in HTML_TEMPLATE
+    assert "toggleAgentFilter(" in HTML_TEMPLATE
+    assert "selectAllAgents(" in HTML_TEMPLATE
+    assert "resetChartZoom(" in HTML_TEMPLATE
+    assert "chart-crosshair" in HTML_TEMPLATE
+    assert "chart-drag-box" in HTML_TEMPLATE
+    assert "chart-overlay" in HTML_TEMPLATE
+
 
 
 def test_generate_html_file(tmp_path):

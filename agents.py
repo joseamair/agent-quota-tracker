@@ -1934,6 +1934,11 @@ def poke_agy(prompt: str = "Hello, how are you doing?") -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def _discover_cursor_token(custom_db: Optional[Path] = None) -> Optional[str]:
+    for env_var in ("CURSOR_ACCESS_TOKEN", "CURSOR_TOKEN"):
+        val = os.environ.get(env_var)
+        if val and val.strip():
+            return val.strip()
+
     if custom_db and custom_db.exists():
         candidates = [custom_db]
     else:
@@ -1970,6 +1975,7 @@ def get_cursor_status(
     agent_id: str = "cursor",
 ) -> AgentInfo:
     token = access_token or _discover_cursor_token()
+    cookie = cookie or os.environ.get("CURSOR_SESSION_COOKIE") or os.environ.get("WORKOS_CURSOR_SESSION_TOKEN")
     if not token and not cookie:
         return AgentInfo(
             id=agent_id,
@@ -2056,6 +2062,11 @@ def poke_cursor(prompt: str = "Hello, how are you doing?") -> dict[str, Any]:
 
 
 def _discover_windsurf_key() -> Optional[str]:
+    for env_var in ("CODEIUM_API_KEY", "WINDSURF_API_KEY", "CODEIUM_TOKEN"):
+        val = os.environ.get(env_var)
+        if val and val.strip():
+            return val.strip()
+
     home = Path(os.path.expanduser("~"))
     candidates = [
         home / ".codeium" / "config.json",
@@ -2133,6 +2144,11 @@ def poke_windsurf(prompt: str = "Hello, how are you doing?") -> dict[str, Any]:
 
 
 def _discover_copilot_token() -> Optional[str]:
+    for env_var in ("COPILOT_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"):
+        val = os.environ.get(env_var)
+        if val and val.strip():
+            return val.strip()
+
     gh_bin = shutil.which("gh")
     if gh_bin:
         try:
@@ -2252,7 +2268,7 @@ def poke_copilot(prompt: str = "Hello, how are you doing?") -> dict[str, Any]:
 
 
 def _discover_openrouter_key() -> Optional[str]:
-    for env_var in ("OPENROUTER_API_KEY", "AIDER_API_KEY"):
+    for env_var in ("OPENROUTER_API_KEY", "AIDER_API_KEY", "OPENROUTER_KEY"):
         val = os.environ.get(env_var)
         if val and val.strip():
             return val.strip()

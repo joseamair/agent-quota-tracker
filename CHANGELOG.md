@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-05
+
+### Added
+- **Interactive Quick Filter & Search in Terminal TUI (`agents tui`)** ([#55](https://github.com/joseamair/agent-quota-tracker/issues/55)):
+  - **Fleet Search Mode (`/`)**: Real-time interactive search and filtering mode in the full-screen terminal TUI (`agents tui`) for managing large account setups.
+  - **Multi-Field Matching**: Substring matching across account display name, provider, identifier, category, and status label.
+  - **Semantic Keyword Filters**: Quick filtering by semantic account states—`idle` (dormant accounts ready to poke), `active` (counting down windows), `expired` / `auth` (accounts requiring re-authentication).
+  - **Ergonomic Key Navigation**: Real-time query indicator (`🔍 Filter: query█`), `Backspace` support, `Enter` to confirm filter and return focus to table navigation, and `Esc` to clear active filter.
+  - **Filtered Poke-All (`a`)**: When a filter is active, pressing `a` primes only the idle accounts matching the active filter.
+  - **Display Alignment Guard**: Visual string padding computed using regex ANSI strip to guarantee table and hotkey column alignment without terminal line wrapping.
+  - **Tri-Engine Parity**: Fully implemented across modular Python package (`src/agent_quota_tracker/tui.py`), standalone runner (`agents.py`), and test suite (`tests/test_tui.py`).
+- **Community Agent Trackers General Availability (GA)** ([#53](https://github.com/joseamair/agent-quota-tracker/issues/53)):
+  - **Graduation to GA**: Promoted Cursor, Windsurf, GitHub Copilot CLI, and Aider/OpenRouter trackers from Beta to General Availability.
+  - **Multi-Source Environment Variable Discovery**: Added standard environment variable fallbacks:
+    - Cursor: `CURSOR_ACCESS_TOKEN`, `CURSOR_TOKEN`, `CURSOR_SESSION_COOKIE`, `WORKOS_CURSOR_SESSION_TOKEN`.
+    - Windsurf: `CODEIUM_API_KEY`, `WINDSURF_API_KEY`, `CODEIUM_TOKEN`.
+    - GitHub Copilot CLI: `COPILOT_TOKEN`, `GITHUB_TOKEN`, `GH_TOKEN`.
+    - Aider / OpenRouter: `OPENROUTER_API_KEY`, `AIDER_API_KEY`, `OPENROUTER_KEY`.
+  - **Proactive Auth Health Guard Integration**: Integrated token expiration inspection, HTTP 401/403 detection, and actionable remediation advice for all 4 community trackers.
+  - **Tri-Engine Parity**: Fully implemented across modular Python package (`src/agent_quota_tracker/trackers/`), standalone runner (`agents.py`), and native PowerShell (`agents_native.ps1`).
+
 ## [1.3.0] - 2026-10-05
 
 ### Added

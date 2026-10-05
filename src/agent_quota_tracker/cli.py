@@ -946,6 +946,23 @@ def run_export_cmd(
         console.print(f"[bold green]✔ Successfully exported {export_type} history to [cyan]{filepath}[/cyan][/bold green]\n")
 
 
+def run_tui_cmd(
+    refresh_interval: int = 15,
+    notify: bool = False,
+    force: bool = False,
+    agent_id: Optional[str] = None,
+) -> None:
+    """Launches the interactive full-screen terminal user interface."""
+    from agent_quota_tracker.tui import run_tui
+
+    run_tui(
+        refresh_interval=refresh_interval,
+        notify=notify,
+        force=force,
+        agent_id=agent_id,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="⚡ AI Agents 5-Hour Window Tracker & Dashboard\n\nMonitor rolling rate limit windows, track weekly resets, and poke AI accounts non-interactively.",
@@ -1174,10 +1191,16 @@ Examples:
         help="Data type to export ('snapshots' or 'pokes', default: snapshots).",
     )
     parser.add_argument(
+        "--tui",
+        "-t",
+        action="store_true",
+        help="Launch the interactive full-screen terminal user interface (TUI).",
+    )
+    parser.add_argument(
         "subcommand",
         nargs="?",
-        choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule", "auto", "analytics", "insights", "backfill", "history", "metrics", "export"],
-        help="Optional positional subcommand alias for status, poke, dashboard, poke-watch, prompt, schedule, auto, analytics, backfill, metrics, or export",
+        choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule", "auto", "analytics", "insights", "backfill", "history", "metrics", "export", "tui"],
+        help="Optional positional subcommand alias for status, poke, dashboard, poke-watch, prompt, schedule, auto, analytics, backfill, metrics, export, or tui",
     )
     parser.add_argument(
         "extra_args",
@@ -1272,8 +1295,16 @@ Examples:
     is_poke_watch = args.poke_watch or args.subcommand == "poke-watch"
     is_auto = args.auto or args.auto_poke or (args.subcommand == "auto")
     is_dashboard = args.dashboard or (args.subcommand == "dashboard")
+    is_tui = args.tui or (args.subcommand == "tui")
 
-    if is_auto:
+    if is_tui:
+        run_tui_cmd(
+            refresh_interval=args.refresh_interval,
+            notify=args.notify,
+            force=args.force,
+            agent_id=args.agent,
+        )
+    elif is_auto:
         run_auto_checker_loop(
             force=args.force,
             agent_id=args.agent,
@@ -1308,7 +1339,7 @@ Examples:
     else:
         # Default behavior: show status table and brief help
         print_status_table()
-        console.print("[dim]Use [bold]agents auto[/bold], [bold]agents --status[/bold], [bold]agents --poke[/bold], or [bold]agents --dashboard[/bold] for specific actions.[/dim]\n")
+        console.print("[dim]Use [bold]agents auto[/bold], [bold]agents tui[/bold], [bold]agents --status[/bold], [bold]agents --poke[/bold], or [bold]agents --dashboard[/bold] for specific actions.[/dim]\n")
 
 
 if __name__ == "__main__":

@@ -32,6 +32,7 @@ A lightweight, local quota monitoring system and web dashboard designed for deve
   - [`agents --backfill`](#12-agents---backfill-historical-activity--schedule-log-importer)
   - [`agents --metrics`](#13-agents---metrics-prometheus-metrics-endpoint--cli-output)
   - [`agents export --csv`](#14-agents-export---csv-historical-timeseries-csv-export)
+  - [`agents tui`](#15-agents-tui--agents---tui-interactive-full-screen-terminal-user-interface)
 - [Global PowerShell Integration](#-global-powershell-integration)
 - [Web Dashboard Preview](#-web-dashboard-preview)
 - [Linux & macOS Compatibility & Setup Guide](#-linux--macos-compatibility--setup-guide)
@@ -108,6 +109,9 @@ A lightweight, local quota monitoring system and web dashboard designed for deve
 - **Prometheus Metrics & CSV Timeseries Export**:
   - Live Prometheus 0.0.4 text-format exporter served at `GET /metrics` on the Web Dashboard and via `agents --metrics` CLI. Exposes gauge metrics (`agent_quota_used_percent`, `agent_weekly_used_percent`, `agent_time_remaining_seconds`, `agent_auth_valid`, etc.) with rich multi-attribute labels.
   - RFC 4180 CSV export for historical snapshots and priming logs via `agents export --csv` (with `--days N`, `--type snapshots|pokes`, and `--out <file>`) and `GET /api/export` on the Web Dashboard.
+- **Interactive Full-Screen Terminal TUI (`agents tui`, `--tui`)**:
+  - Full-screen keyboard-driven terminal dashboard running in an alternate screen buffer (`\033[?1049h`), leaving your previous shell scrollback untouched on exit.
+  - Interactive row navigation (`↑`/`k`, `↓`/`j`), single-account poke (`p`), force poke (`f`), poke-all (`a`), instant refresh (`r`), live second-by-second countdown ticking, and selected account inspector panel.
 - **Tri-Engine Implementation**:
   - Full Python package with Rich terminal formatting (`uv run agents` or `python -m agent_quota_tracker`).
   - Standalone single-file Python runner (`agents.py`).
@@ -537,6 +541,45 @@ python agents.py --export-csv --days 7 --out history.csv
 
 # With native PowerShell:
 .\agents_native.ps1 -ExportCsv -Days 7
+```
+
+---
+
+### 15. `agents tui` / `agents --tui` (Interactive Full-Screen Terminal User Interface)
+An immersive, full-screen, keyboard-driven terminal dashboard designed for terminal power users who want live monitoring and control right in their active shell:
+- **Full-Screen Alternate Buffer**: Runs in terminal alternate buffer (`\033[?1049h`), ensuring that when you exit with `q` or `Esc`, your active terminal scrollback history is preserved 100% cleanly.
+- **Interactive Keyboard Controls**:
+  - `↑` / `k`: Navigate selection up through tracked accounts.
+  - `↓` / `j`: Navigate selection down through tracked accounts.
+  - `p`: Trigger smart poke on the selected account (if currently idle).
+  - `f`: Force poke the selected account (even if already active).
+  - `a`: Poke all currently idle accounts in one command.
+  - `r`: Force immediate status re-fetch from provider APIs and local cache.
+  - `?` or `h`: Toggle interactive floating help overlay modal.
+  - `q` or `Esc`: Cleanly exit the TUI and restore standard terminal cursor and colors.
+- **Live Panels & Inspector**:
+  - **Header Bar**: Live active account count, earliest reset window countdown, and local clock.
+  - **Accounts Table**: Interactive table with row highlight cursor (`▶`), 5h state badges (`● ACTIVE`, `○ INACTIVE`, `⚠️ EXPIRED`, `⚠️ NO AUTH`), live ticking remaining time, and Unicode progress bars.
+  - **Selected Account Inspector**: Real-time panel displaying category, ID, provider, exact reset timestamps, utilization breakdown, and token remediation instructions if authentication requires attention.
+  - **Activity & Status Log**: Feedback bar reporting results of pokes, skips, and API refreshes in real time.
+
+```powershell
+# Launch interactive TUI:
+agents tui
+# Or with flag:
+agents --tui
+
+# Custom live API refresh interval (default: 15s):
+agents tui --refresh-interval 20
+
+# With desktop notifications on primed accounts:
+agents tui --notify
+
+# Standalone Python runner:
+python agents.py --tui
+
+# With native PowerShell:
+.\agents_native.ps1 -Tui
 ```
 
 ---

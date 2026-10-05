@@ -110,7 +110,7 @@ A lightweight, local quota monitoring system and web dashboard designed for deve
   - RFC 4180 CSV export for historical snapshots and priming logs via `agents export --csv` (with `--days N`, `--type snapshots|pokes`, and `--out <file>`) and `GET /api/export` on the Web Dashboard.
 - **Interactive Full-Screen Terminal TUI (`agents tui`, `--tui`)**:
   - Full-screen keyboard-driven terminal dashboard running in an alternate screen buffer (`\033[?1049h`), leaving your previous shell scrollback untouched on exit.
-  - Interactive row navigation (`↑`/`k`, `↓`/`j`), single-account poke (`p`), force poke (`f`), poke-all (`a`), instant refresh (`r`), live second-by-second countdown ticking, and selected account inspector panel.
+  - Interactive row navigation (`↑`/`k`, `↓`/`j`), real-time quick filter search (`/`), single-account poke (`p`), force poke (`f`), poke-all (`a`), instant refresh (`r`), live second-by-second countdown ticking, and selected account inspector panel.
 - **Tri-Engine Implementation**:
   - Full Python package with Rich terminal formatting (`uv run agents` or `python -m agent_quota_tracker`).
   - Standalone single-file Python runner (`agents.py`).

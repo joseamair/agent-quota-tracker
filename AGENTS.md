@@ -215,11 +215,12 @@ To automate this strategy without manual terminal loops, the following features 
   - Zero third-party dependencies; full Tri-Engine Parity across modular Python package (`src/agent_quota_tracker/metrics.py`, `history.py`), standalone runner (`agents.py`), and pure native PowerShell (`agents_native.ps1 -Metrics`, `-ExportCsv`).
 
 ### Feature 12: Interactive Full-Screen Terminal TUI (`agents tui`) [DELIVERED - v1.3.0]
-- **Tracking Issue**: [#50](https://github.com/joseamair/agent-quota-tracker/issues/50)
+- **Tracking Issues**: [#50](https://github.com/joseamair/agent-quota-tracker/issues/50), [#55](https://github.com/joseamair/agent-quota-tracker/issues/55)
 - **Command**: `agents tui`, `agents --tui`
 - **Architecture**:
   - Full-screen keyboard-driven terminal dashboard rendered in the terminal alternate screen buffer (`\033[?1049h`), restoring previous scrollback and cursor visibility upon exit.
   - Interactive row navigation (`↑`/`k` and `↓`/`j`), single-account poke (`p`), force poke (`f`), poke-all (`a`), manual API refresh (`r`), and floating help reference modal (`?`/`h`).
+  - **Interactive Quick Filter Mode (`/`)**: Real-time interactive search prompt filtering accounts by name, provider, id, category, or semantic keywords (`idle`, `active`, `expired`), with `Backspace` and `Esc` to clear.
   - Real-time panels: Header statistics bar, interactive accounts table with live ticking second-by-second countdowns and Unicode progress bars, selected account metadata and auth remediation inspector panel, and activity status bar.
   - Zero-dependency non-blocking cross-platform input engine using `msvcrt` on Windows and `select`/`termios` on Linux/macOS.
   - Full Tri-Engine Parity across modular Python package (`src/agent_quota_tracker/tui.py`), standalone runner (`agents.py`), and native PowerShell (`agents_native.ps1 -Tui`).

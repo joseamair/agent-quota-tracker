@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sys
 import time
@@ -69,11 +70,15 @@ def read_key(timeout: float = 0.1) -> Optional[str]:
                         return "left"
                     elif ch2 == b"M":
                         return "right"
+                    elif ch2 == b"S":
+                        return "backspace"
                     return None
                 elif ch == b"\r":
                     return "enter"
                 elif ch == b"\x1b":
                     return "esc"
+                elif ch == b"\x08":
+                    return "backspace"
                 elif ch == b"\x03":
                     return "ctrl_c"
                 elif ch == b"\t":
@@ -117,10 +122,14 @@ def read_key(timeout: float = 0.1) -> Optional[str]:
                             return "right"
                         elif seq == "[D":
                             return "left"
+                        elif seq == "[3":
+                            return "backspace"
                         return "esc"
                     return "esc"
                 elif ch == "\r" or ch == "\n":
                     return "enter"
+                elif ch in ("\x7f", "\x08"):
+                    return "backspace"
                 elif ch == "\x03":
                     return "ctrl_c"
                 elif ch == "\t":
@@ -189,7 +198,9 @@ class AgentTUI:
         self.selected_index: int = 0
         self.running: bool = False
         self.show_help: bool = False
-        self.status_msg: str = "Ready. Use [↑/↓] or [k/j] to navigate, [p] to poke, [?] for help."
+        self.filter_mode: bool = False
+        self.filter_query: str = ""
+        self.status_msg: str = "Ready. Use [↑/↓] or [k/j] to navigate, [p] to poke, [/] to filter, [?] for help."
         self.status_type: str = "info"  # 'info', 'success', 'warning', 'error'
         self.status_time: float = time.time()
         self.last_api_fetch: float = 0.0
@@ -203,6 +214,30 @@ class AgentTUI:
         self.status_type = level
         self.status_time = time.time()
 
+    def get_filtered_statuses(self) -> list[AgentStatus]:
+        """Returns statuses matching current filter query across name, provider, id, or status."""
+        if not self.filter_query.strip():
+            return self.statuses
+        q = self.filter_query.strip().lower()
+        if q == "idle":
+            return [s for s in self.statuses if not s.is_active]
+        if q == "active":
+            return [s for s in self.statuses if s.is_active]
+        if q in ("expired", "auth"):
+            return [s for s in self.statuses if s.auth_status in ("expired", "missing")]
+
+        res: list[AgentStatus] = []
+        for s in self.statuses:
+            if (
+                q in s.name.lower()
+                or q in s.provider.lower()
+                or q in s.id.lower()
+                or q in s.category.lower()
+                or q in s.status_label.lower()
+            ):
+                res.append(s)
+        return res
+
     def fetch_statuses(self) -> None:
         """Fetches fresh statuses from provider APIs or local cache."""
         try:
@@ -211,8 +246,11 @@ class AgentTUI:
                 target = self.agent_id.lower()
                 statuses = [s for s in statuses if s.id == target or s.id == f"claude-{target}"]
             self.statuses = statuses
-            if self.statuses:
-                self.selected_index = max(0, min(self.selected_index, len(self.statuses) - 1))
+            filtered = self.get_filtered_statuses()
+            if filtered:
+                self.selected_index = max(0, min(self.selected_index, len(filtered) - 1))
+            else:
+                self.selected_index = 0
             self.last_api_fetch = time.time()
             self.last_tick_time = time.time()
         except Exception as e:
@@ -226,8 +264,9 @@ class AgentTUI:
                 s.time_remaining_str = format_duration(s.time_remaining_seconds)
 
     def get_selected_agent(self) -> Optional[AgentStatus]:
-        if 0 <= self.selected_index < len(self.statuses):
-            return self.statuses[self.selected_index]
+        filtered = self.get_filtered_statuses()
+        if 0 <= self.selected_index < len(filtered):
+            return filtered[self.selected_index]
         return None
 
     def poke_selected(self, force: bool = False) -> None:
@@ -263,11 +302,24 @@ class AgentTUI:
 
     def poke_all_idle(self) -> None:
         self.is_busy = True
-        self.busy_msg = "Poking all idle accounts..."
+        self.busy_msg = "Poking idle accounts..."
         self.render_frame()
 
         try:
-            results = poke_all(force=False, agent_id=self.agent_id)
+            if not self.filter_query.strip():
+                results = poke_all(force=False, agent_id=self.agent_id)
+            else:
+                filtered = self.get_filtered_statuses()
+                target_idle = [s for s in filtered if not s.is_active and s.auth_status != "expired"]
+                if not target_idle:
+                    self.set_status("ℹ No idle accounts to prime in current view.", level="info")
+                    return
+                results = []
+                for agent in target_idle:
+                    r = poke_all(force=False, agent_id=agent.id)
+                    if r:
+                        results.extend(r)
+
             poked_names = [r.agent_name for r in results if r.action_taken == "poked"]
             skipped_count = sum(1 for r in results if r.action_taken == "skipped")
             if poked_names:
@@ -288,6 +340,8 @@ class AgentTUI:
         width = max(80, term_width)
         lines: list[str] = []
 
+        filtered = self.get_filtered_statuses()
+
         # ── 1. Top Header Banner ───────────────────────────────────────────
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         active_count = sum(1 for s in self.statuses if s.is_active)
@@ -302,7 +356,10 @@ class AgentTUI:
             earliest_str = "None (All idle)"
 
         header_title = "⚡ AGENT QUOTA TRACKER TUI"
-        header_stats = f"Active: {active_count}/{total_count} • Next Reset: {earliest_str} • {now_str}"
+        if self.filter_query:
+            header_stats = f"Filter: '{self.filter_query}' ({len(filtered)}/{total_count}) • Active: {active_count}/{total_count} • {now_str}"
+        else:
+            header_stats = f"Active: {active_count}/{total_count} • Next Reset: {earliest_str} • {now_str}"
 
         # Truncate stats if line exceeds width
         if len(header_title) + len(header_stats) + 4 > width:
@@ -348,11 +405,14 @@ class AgentTUI:
         lines.append(f"\033[1;36m├{'─' * (width - 2)}┤\033[0m")
 
         # ── 3. Table Rows ──────────────────────────────────────────────────
-        if not self.statuses:
-            empty_msg = "No accounts configured or loaded."
+        if not filtered:
+            if self.filter_query:
+                empty_msg = f"No accounts matching filter: '{self.filter_query}' (Press [Esc] to clear)."
+            else:
+                empty_msg = "No accounts configured or loaded."
             lines.append(f"\033[1;36m│\033[0m \033[dim]{empty_msg:<{width - 4}}\033[0m \033[1;36m│\033[0m")
         else:
-            for idx, s in enumerate(self.statuses):
+            for idx, s in enumerate(filtered):
                 is_selected = (idx == self.selected_index)
                 cursor = "▶ " if is_selected else "  "
 
@@ -453,8 +513,12 @@ class AgentTUI:
 
         # ── 5. Status / Activity Message Bar ──────────────────────────────
         lines.append(f"\033[1;36m├{'─' * (width - 2)}┤\033[0m")
-        if self.is_busy:
+        if self.filter_mode:
+            status_line = f"\033[1;33m🔍 Filter:\033[0m \033[1;37m{self.filter_query}\033[0m\033[7m \033[0m  \033[dim](Type to search, [Enter] apply, [Esc] clear)\033[0m"
+        elif self.is_busy:
             status_line = f"\033[1;33m⏳ {self.busy_msg}\033[0m"
+        elif self.filter_query:
+            status_line = f"\033[1;33m🔍 Filter: '{self.filter_query}'\033[0m \033[dim]({len(filtered)}/{total_count} shown • [/] edit, [Esc] clear)\033[0m • {self.status_msg}"
         elif self.status_type == "success":
             status_line = f"\033[1;32m{self.status_msg}\033[0m"
         elif self.status_type == "warning":
@@ -464,21 +528,25 @@ class AgentTUI:
         else:
             status_line = f"\033[cyan]{self.status_msg}\033[0m"
 
-        lines.append(f"\033[1;36m│\033[0m {status_line:<{width + 6}}\033[1;36m│\033[0m")
+        clean_status = re.sub(r"\033\[[0-9;]*m", "", status_line)
+        status_pad = max(0, width - 4 - len(clean_status))
+        lines.append(f"\033[1;36m│\033[0m {status_line}{' ' * status_pad} \033[1;36m│\033[0m")
 
         # ── 6. Bottom Hotkey Helper Bar ────────────────────────────────────
         lines.append(f"\033[1;36m├{'─' * (width - 2)}┤\033[0m")
         hotkeys = (
-            "\033[1;37m[↑/k]\033[0m Up  "
-            "\033[1;37m[↓/j]\033[0m Down  "
+            "\033[1;37m[↑/↓]\033[0m Nav  "
             "\033[1;32m[p]\033[0m Poke  "
-            "\033[1;33m[f]\033[0m Force Poke  "
-            "\033[1;36m[a]\033[0m Poke All  "
+            "\033[1;33m[f]\033[0m Force  "
+            "\033[1;36m[a]\033[0m All  "
+            "\033[1;33m[/]\033[0m Filter  "
             "\033[1;37m[r]\033[0m Refresh  "
             "\033[1;35m[?]\033[0m Help  "
             "\033[1;31m[q]\033[0m Quit"
         )
-        lines.append(f"\033[1;36m│\033[0m {hotkeys:<{width + 42}}\033[1;36m│\033[0m")
+        clean_hotkeys = re.sub(r"\033\[[0-9;]*m", "", hotkeys)
+        hk_pad = max(0, width - 4 - len(clean_hotkeys))
+        lines.append(f"\033[1;36m│\033[0m {hotkeys}{' ' * hk_pad} \033[1;36m│\033[0m")
         lines.append(f"\033[1;36m└{'─' * (width - 2)}┘\033[0m")
 
         # ── 7. Optional Help Modal Overlay ────────────────────────────────
@@ -494,15 +562,19 @@ class AgentTUI:
             "┌" + ("─" * (modal_w - 2)) + "┐",
             "│" + " ⚡ AGENT QUOTA TRACKER TUI — KEYBOARD REFERENCE ".center(modal_w - 2) + "│",
             "├" + ("─" * (modal_w - 2)) + "┤",
-            "│" + "  Navigation & Actions:".ljust(modal_w - 2) + "│",
+            "│" + "  Navigation & Filtering:".ljust(modal_w - 2) + "│",
             "│" + "    ↑ / k       Move selection up".ljust(modal_w - 2) + "│",
             "│" + "    ↓ / j       Move selection down".ljust(modal_w - 2) + "│",
+            "│" + "    /           Quick filter (name, provider, idle/active/expired)".ljust(modal_w - 2) + "│",
+            "│" + "    Esc         Clear active filter (or close modal/quit)".ljust(modal_w - 2) + "│",
+            "│" + " ".ljust(modal_w - 2) + "│",
+            "│" + "  Actions & Priming:".ljust(modal_w - 2) + "│",
             "│" + "    p           Poke selected account (starts 5h rolling window)".ljust(modal_w - 2) + "│",
             "│" + "    f           Force poke selected account (even if active)".ljust(modal_w - 2) + "│",
-            "│" + "    a           Poke all idle accounts ready to prime".ljust(modal_w - 2) + "│",
+            "│" + "    a           Poke all idle accounts in current view".ljust(modal_w - 2) + "│",
             "│" + "    r           Manual instant refresh from OAuth APIs & cache".ljust(modal_w - 2) + "│",
             "│" + "    ? or h      Toggle this help modal".ljust(modal_w - 2) + "│",
-            "│" + "    q or Esc    Quit TUI and return to shell".ljust(modal_w - 2) + "│",
+            "│" + "    q           Quit TUI and return to shell".ljust(modal_w - 2) + "│",
             "│" + " ".ljust(modal_w - 2) + "│",
             "│" + "  5-Hour Rolling Threshold Mechanics:".ljust(modal_w - 2) + "│",
             "│" + "    • Idle accounts show ○ INACTIVE. The first prompt trips the meter.".ljust(modal_w - 2) + "│",
@@ -513,6 +585,11 @@ class AgentTUI:
             "└" + ("─" * (modal_w - 2)) + "┘",
         ]
 
+        # Ensure lines has enough vertical space for the modal
+        min_lines_needed = len(help_content) + 2
+        while len(lines) < min_lines_needed:
+            lines.append(f"\033[1;36m│\033[0m{' ' * (width - 2)}\033[1;36m│\033[0m")
+
         # Calculate vertical insertion point
         start_y = max(1, (len(lines) - len(help_content)) // 2)
         start_x = max(0, (width - modal_w) // 2)
@@ -521,9 +598,6 @@ class AgentTUI:
             target_idx = start_y + i
             if target_idx < len(lines):
                 # Replace segment on lines[target_idx]
-                orig = lines[target_idx]
-                # Strip ANSI for length matching
-                clean_orig = orig
                 lines[target_idx] = (" " * start_x) + "\033[1;33m" + hline + "\033[0m"
 
         return lines
@@ -582,12 +656,45 @@ class AgentTUI:
                 self.show_help = False
             return
 
+        if self.filter_mode:
+            if key == "esc":
+                self.filter_query = ""
+                self.filter_mode = False
+                self.selected_index = 0
+                self.set_status("Filter cleared.", level="info")
+            elif key == "enter":
+                self.filter_mode = False
+                self.selected_index = 0
+                if self.filter_query:
+                    self.set_status(f"Filter active: '{self.filter_query}'. Press [/] to edit, [Esc] to clear.", level="info")
+                else:
+                    self.set_status("Filter cleared.", level="info")
+            elif key == "backspace":
+                if self.filter_query:
+                    self.filter_query = self.filter_query[:-1]
+                self.selected_index = 0
+            elif len(key) == 1 and (key.isalnum() or key in (" ", "-", "_", ".", "@", ":")):
+                self.filter_query += key
+                self.selected_index = 0
+            return
+
+        filtered = self.get_filtered_statuses()
         if key in ("up", "k"):
-            if self.statuses:
-                self.selected_index = (self.selected_index - 1) % len(self.statuses)
+            if filtered:
+                self.selected_index = (self.selected_index - 1) % len(filtered)
         elif key in ("down", "j"):
-            if self.statuses:
-                self.selected_index = (self.selected_index + 1) % len(self.statuses)
+            if filtered:
+                self.selected_index = (self.selected_index + 1) % len(filtered)
+        elif key == "/":
+            self.filter_mode = True
+            self.set_status("Type to filter accounts (Enter: apply, Esc: clear).", level="info")
+        elif key == "esc":
+            if self.filter_query:
+                self.filter_query = ""
+                self.selected_index = 0
+                self.set_status("Filter cleared.", level="info")
+            else:
+                self.running = False
         elif key == "p":
             self.poke_selected(force=False)
         elif key == "f":
@@ -600,7 +707,7 @@ class AgentTUI:
             self.set_status("✔ Quota statuses refreshed.", level="success")
         elif key in ("?", "h"):
             self.show_help = True
-        elif key in ("q", "esc", "ctrl_c"):
+        elif key in ("q", "ctrl_c"):
             self.running = False
 
 

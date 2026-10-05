@@ -234,3 +234,92 @@ def test_agent_tui_run_loop(mock_read_key, mock_get_statuses, mock_leave, mock_e
     mock_leave.assert_called_once()
     assert not tui.running
     assert tui.selected_index == 1
+
+
+# ==============================================================================
+# Quick Filter Mode Tests
+# ==============================================================================
+
+def test_agent_tui_quick_filter_typing_and_navigation():
+    tui = AgentTUI()
+    tui.statuses = sample_statuses()
+
+    # Enter filter mode with '/'
+    tui.handle_key("/")
+    assert tui.filter_mode is True
+    assert tui.filter_query == ""
+
+    # Type 'a', 'g', 'y'
+    tui.handle_key("a")
+    tui.handle_key("g")
+    tui.handle_key("y")
+    assert tui.filter_query == "agy"
+
+    filtered = tui.get_filtered_statuses()
+    assert len(filtered) == 1
+    assert filtered[0].id == "agy"
+
+    # Backspace
+    tui.handle_key("backspace")
+    assert tui.filter_query == "ag"
+    assert len(tui.get_filtered_statuses()) == 1
+
+    # Confirm with Enter
+    tui.handle_key("enter")
+    assert tui.filter_mode is False
+    assert tui.filter_query == "ag"
+
+    # Render with filter active
+    out = tui.render_to_string(term_width=100, term_height=30)
+    assert "Filter: 'ag'" in out
+    assert "Google Antigravity (AGY)" in out
+    assert "Claude (Personal)" not in out
+
+    # Clear filter with Esc
+    tui.handle_key("esc")
+    assert tui.filter_query == ""
+    assert len(tui.get_filtered_statuses()) == 3
+
+
+def test_agent_tui_quick_filter_semantic_keywords():
+    tui = AgentTUI()
+    tui.statuses = sample_statuses()
+
+    # Filter 'idle'
+    tui.filter_query = "idle"
+    idle_accounts = tui.get_filtered_statuses()
+    # AGY and Codex are inactive
+    assert len(idle_accounts) == 2
+    assert all(not s.is_active for s in idle_accounts)
+
+    # Filter 'active'
+    tui.filter_query = "active"
+    active_accounts = tui.get_filtered_statuses()
+    assert len(active_accounts) == 1
+    assert active_accounts[0].id == "claude-personal"
+
+    # Filter 'expired'
+    tui.filter_query = "expired"
+    expired_accounts = tui.get_filtered_statuses()
+    assert len(expired_accounts) == 1
+    assert expired_accounts[0].id == "codex"
+
+
+@patch("agent_quota_tracker.tui.poke_all")
+def test_agent_tui_quick_filter_poke_filtered_idle(mock_poke):
+    mock_poke.return_value = [
+        PokeResult(agent_id="agy", agent_name="Google Antigravity (AGY)", action_taken="poked", message="Primed")
+    ]
+    tui = AgentTUI()
+    tui.statuses = sample_statuses()
+
+    # Filter to only 'agy'
+    tui.filter_query = "agy"
+
+    with patch.object(tui, "fetch_statuses"):
+        tui.poke_all_idle()
+
+    # Should only poke AGY, not all idle
+    mock_poke.assert_called_once_with(force=False, agent_id="agy")
+    assert "Primed 1 agent(s): Google Antigravity (AGY)" in tui.status_msg
+

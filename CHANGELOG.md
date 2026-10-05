@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-05
+
 ### Added
 - **Interactive Full-Screen Terminal TUI (`agents tui`, `--tui`)** ([#50](https://github.com/joseamair/agent-quota-tracker/issues/50)):
   - **Alternate Screen Buffer Navigation**: Terminal application running in alternate screen buffer (`\033[?1049h`), preserving prior scrollback and restoring cursor and terminal state cleanly on exit (`q`, `Esc`, `Ctrl+C`).

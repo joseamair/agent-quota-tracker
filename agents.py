@@ -1985,7 +1985,7 @@ def get_cursor_status(
         )
 
     url = "https://api2.cursor.sh/auth/usage" if token else "https://www.cursor.com/api/usage"
-    headers = {"User-Agent": "agent-quota-tracker/1.2.1", "Accept": "application/json"}
+    headers = {"User-Agent": "agent-quota-tracker/1.3.0", "Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     if cookie:
@@ -2097,7 +2097,7 @@ def get_windsurf_status(
 
     url = "https://api.codeium.com/register_user/"
     payload = json.dumps({"api_key": key}).encode("utf-8")
-    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json", "User-Agent": "agent-quota-tracker/1.2.1"}, method="POST")
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json", "User-Agent": "agent-quota-tracker/1.3.0"}, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=5.0) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -2182,7 +2182,7 @@ def get_copilot_status(
         )
 
     url = "https://api.github.com/copilot_internal/v2/token"
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {tok}", "User-Agent": "agent-quota-tracker/1.2.1", "Accept": "application/json"}, method="GET")
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {tok}", "User-Agent": "agent-quota-tracker/1.3.0", "Accept": "application/json"}, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=5.0) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -2294,7 +2294,7 @@ def get_aider_status(
         )
 
     url = "https://openrouter.ai/api/v1/auth/key"
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {key}", "User-Agent": "agent-quota-tracker/1.2.1", "Accept": "application/json"}, method="GET")
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {key}", "User-Agent": "agent-quota-tracker/1.3.0", "Accept": "application/json"}, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=5.0) as resp:
             data = json.loads(resp.read().decode("utf-8"))

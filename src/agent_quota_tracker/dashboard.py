@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import json
 import os
 import sys
@@ -1110,6 +1111,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <button class="theme-btn" data-theme="light" onclick="setTheme('light')">☀️ Light</button>
         </div>
         <button class="btn-secondary" onclick="openScheduleModal()">⏰ Morning Priming</button>
+        <button class="btn-secondary" onclick="exportData('snapshots')" title="Download timeseries snapshots as CSV">📥 Export CSV</button>
+        <a href="/metrics" target="_blank" class="btn-secondary" style="text-decoration: none; display: inline-flex; align-items: center;" title="View Prometheus Metrics exposition endpoint">📈 Metrics</a>
         <button class="btn-secondary" onclick="fetchData(true)">🔄 Refresh</button>
         <button class="btn-primary" id="btn-poke-all" onclick="triggerPokeAll()">⚡ Poke All Idle</button>
       </div>
@@ -1418,6 +1421,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         btn.disabled = false;
         btn.innerHTML = "⚡ Poke All Idle";
       }
+    }
+
+    function exportData(type = 'snapshots') {
+      window.location.href = `/api/export?format=csv&type=${type}`;
     }
 
     async function triggerPoke(agentId, force = false) {
@@ -2345,6 +2352,39 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps(data).encode("utf-8"))
+        elif self.path in ("/metrics", "/metrics/"):
+            from agent_quota_tracker.metrics import render_prometheus_metrics
+
+            statuses = get_all_statuses()
+            metrics_text = render_prometheus_metrics(statuses)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(metrics_text.encode("utf-8"))
+        elif self.path.startswith("/api/export"):
+            from agent_quota_tracker.history import export_pokes_csv, export_snapshots_csv
+
+            parsed = urlparse(self.path)
+            qs = parse_qs(parsed.query)
+            export_type = qs.get("type", ["snapshots"])[0].lower()
+            days_val = qs.get("days", [None])[0]
+            days = int(days_val) if (days_val and days_val.isdigit()) else None
+
+            now_str = datetime.now().strftime("%Y%m%d")
+            if export_type == "pokes":
+                csv_text = export_pokes_csv(days=days)
+                filename = f"agent_quota_pokes_{now_str}.csv"
+            else:
+                csv_text = export_snapshots_csv(days=days)
+                filename = f"agent_quota_snapshots_{now_str}.csv"
+
+            self.send_response(200)
+            self.send_header("Content-Type", "text/csv; charset=utf-8")
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(csv_text.encode("utf-8"))
         elif self.path.startswith("/api/backfill"):
             from agent_quota_tracker.history import backfill_history
 

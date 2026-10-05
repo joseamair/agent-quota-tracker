@@ -491,6 +491,259 @@ def run_analytics_command(days: int = 7) -> None:
     print("\n" + "=" * bar_len + "\n")
 
 
+def export_snapshots_csv(
+    filepath: Optional[str | Path] = None,
+    days: Optional[int] = None,
+    agent_id: Optional[str] = None,
+    db_path: Optional[Path] = None,
+) -> str:
+    """Exports quota snapshot time-series data to CSV."""
+    import csv
+    import io
+
+    init_history_db(db_path)
+    conn = get_history_connection(db_path)
+    try:
+        cur = conn.cursor()
+        query = """
+            SELECT timestamp_iso, timestamp, agent_id, agent_name, provider,
+                   is_active, used_percent, weekly_used_percent, time_remaining_seconds
+            FROM snapshots
+        """
+        params: list[Any] = []
+        conditions: list[str] = []
+
+        if days is not None and days > 0:
+            cutoff = time.time() - (days * 86400)
+            conditions.append("timestamp >= ?")
+            params.append(cutoff)
+
+        if agent_id:
+            conditions.append("(agent_id = ? OR agent_id = ?)")
+            params.extend([agent_id, f"claude-{agent_id}"])
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        query += " ORDER BY timestamp ASC"
+
+        cur.execute(query, tuple(params))
+        rows = cur.fetchall()
+
+        output = io.StringIO()
+        writer = csv.writer(output, lineterminator="\n")
+        writer.writerow([
+            "timestamp_iso",
+            "timestamp",
+            "agent_id",
+            "agent_name",
+            "provider",
+            "is_active",
+            "used_percent",
+            "weekly_used_percent",
+            "time_remaining_seconds",
+        ])
+
+        for r in rows:
+            writer.writerow([
+                r["timestamp_iso"],
+                r["timestamp"],
+                r["agent_id"],
+                r["agent_name"],
+                r["provider"],
+                1 if r["is_active"] else 0,
+                r["used_percent"],
+                r["weekly_used_percent"] if r["weekly_used_percent"] is not None else "",
+                r["time_remaining_seconds"],
+            ])
+
+        csv_text = output.getvalue()
+        if filepath and str(filepath).strip() != "-":
+            p = Path(filepath)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(csv_text, encoding="utf-8")
+
+        return csv_text
+    finally:
+        conn.close()
+
+
+def export_pokes_csv(
+    filepath: Optional[str | Path] = None,
+    days: Optional[int] = None,
+    agent_id: Optional[str] = None,
+    db_path: Optional[Path] = None,
+) -> str:
+    """Exports historical poke action records to CSV."""
+    import csv
+    import io
+
+    init_history_db(db_path)
+    conn = get_history_connection(db_path)
+    try:
+        cur = conn.cursor()
+        query = """
+            SELECT timestamp_iso, timestamp, agent_id, agent_name, action, message
+            FROM pokes
+        """
+        params: list[Any] = []
+        conditions: list[str] = []
+
+        if days is not None and days > 0:
+            cutoff = time.time() - (days * 86400)
+            conditions.append("timestamp >= ?")
+            params.append(cutoff)
+
+        if agent_id:
+            conditions.append("(agent_id = ? OR agent_id = ?)")
+            params.extend([agent_id, f"claude-{agent_id}"])
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        query += " ORDER BY timestamp ASC"
+
+        cur.execute(query, tuple(params))
+        rows = cur.fetchall()
+
+        output = io.StringIO()
+        writer = csv.writer(output, lineterminator="\n")
+        writer.writerow([
+            "timestamp_iso",
+            "timestamp",
+            "agent_id",
+            "agent_name",
+            "action",
+            "message",
+        ])
+
+        for r in rows:
+            writer.writerow([
+                r["timestamp_iso"],
+                r["timestamp"],
+                r["agent_id"],
+                r["agent_name"],
+                r["action"],
+                r["message"] or "",
+            ])
+
+        csv_text = output.getvalue()
+        if filepath and str(filepath).strip() != "-":
+            p = Path(filepath)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(csv_text, encoding="utf-8")
+
+        return csv_text
+    finally:
+        conn.close()
+
+
+def render_prometheus_metrics(statuses: list[Any]) -> str:
+    """Renders agent quota statuses into standard Prometheus text exposition format (version 0.0.4)."""
+    def _esc(val: Any) -> str:
+        if val is None:
+            return ""
+        return str(val).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+    def _get_val(obj: Any, key: str, default: Any = None) -> Any:
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    lines = [
+        "# HELP agent_quota_tracker_up Always 1 if the agent quota tracker exporter is active.",
+        "# TYPE agent_quota_tracker_up gauge",
+        "agent_quota_tracker_up 1",
+        "",
+        "# HELP agent_quota_used_percent Rolling 5-hour window quota usage percentage (0.0 to 100.0).",
+        "# TYPE agent_quota_used_percent gauge",
+    ]
+
+    for s in statuses:
+        aid = _get_val(s, "id") or _get_val(s, "agent_id") or "unknown"
+        name = _get_val(s, "name") or _get_val(s, "display_name") or aid
+        prov = _get_val(s, "provider") or "unknown"
+        cat = _get_val(s, "category") or "personal"
+        try:
+            used = float(_get_val(s, "used_percent", 0.0) or 0.0)
+        except Exception:
+            used = 0.0
+        labels = f'agent_id="{_esc(aid)}",agent_name="{_esc(name)}",provider="{_esc(prov)}",category="{_esc(cat)}"'
+        lines.append(f"agent_quota_used_percent{{{labels}}} {used:.1f}")
+
+    lines.append("")
+    lines.append("# HELP agent_weekly_used_percent Weekly quota usage percentage (0.0 to 100.0) or 0 if unmetered.")
+    lines.append("# TYPE agent_weekly_used_percent gauge")
+    for s in statuses:
+        aid = _get_val(s, "id") or _get_val(s, "agent_id") or "unknown"
+        name = _get_val(s, "name") or _get_val(s, "display_name") or aid
+        prov = _get_val(s, "provider") or "unknown"
+        cat = _get_val(s, "category") or "personal"
+        wk = _get_val(s, "weekly_used_percent")
+        val_str = f"{float(wk):.1f}" if wk is not None else "0.0"
+        labels = f'agent_id="{_esc(aid)}",agent_name="{_esc(name)}",provider="{_esc(prov)}",category="{_esc(cat)}"'
+        lines.append(f"agent_weekly_used_percent{{{labels}}} {val_str}")
+
+    lines.append("")
+    lines.append("# HELP agent_quota_remaining_fraction Rolling 5-hour quota remaining fraction (0.0 to 1.0).")
+    lines.append("# TYPE agent_quota_remaining_fraction gauge")
+    for s in statuses:
+        aid = _get_val(s, "id") or _get_val(s, "agent_id") or "unknown"
+        name = _get_val(s, "name") or _get_val(s, "display_name") or aid
+        prov = _get_val(s, "provider") or "unknown"
+        cat = _get_val(s, "category") or "personal"
+        try:
+            used = float(_get_val(s, "used_percent", 0.0) or 0.0)
+        except Exception:
+            used = 0.0
+        frac = max(0.0, min(1.0, round(1.0 - (used / 100.0), 4)))
+        labels = f'agent_id="{_esc(aid)}",agent_name="{_esc(name)}",provider="{_esc(prov)}",category="{_esc(cat)}"'
+        lines.append(f"agent_quota_remaining_fraction{{{labels}}} {frac:.4f}")
+
+    lines.append("")
+    lines.append("# HELP agent_time_remaining_seconds Seconds remaining in the active 5-hour quota window.")
+    lines.append("# TYPE agent_time_remaining_seconds gauge")
+    for s in statuses:
+        aid = _get_val(s, "id") or _get_val(s, "agent_id") or "unknown"
+        name = _get_val(s, "name") or _get_val(s, "display_name") or aid
+        prov = _get_val(s, "provider") or "unknown"
+        cat = _get_val(s, "category") or "personal"
+        try:
+            secs = int(_get_val(s, "time_remaining_seconds", 0) or 0)
+        except Exception:
+            secs = 0
+        labels = f'agent_id="{_esc(aid)}",agent_name="{_esc(name)}",provider="{_esc(prov)}",category="{_esc(cat)}"'
+        lines.append(f"agent_time_remaining_seconds{{{labels}}} {secs}")
+
+    lines.append("")
+    lines.append("# HELP agent_is_active Whether the agent has an active rolling quota window (1=active, 0=inactive).")
+    lines.append("# TYPE agent_is_active gauge")
+    for s in statuses:
+        aid = _get_val(s, "id") or _get_val(s, "agent_id") or "unknown"
+        name = _get_val(s, "name") or _get_val(s, "display_name") or aid
+        prov = _get_val(s, "provider") or "unknown"
+        cat = _get_val(s, "category") or "personal"
+        is_act = 1 if bool(_get_val(s, "is_active", False)) else 0
+        labels = f'agent_id="{_esc(aid)}",agent_name="{_esc(name)}",provider="{_esc(prov)}",category="{_esc(cat)}"'
+        lines.append(f"agent_is_active{{{labels}}} {is_act}")
+
+    lines.append("")
+    lines.append("# HELP agent_auth_valid Whether the agent credentials and auth state are currently valid (1=valid, 0=expired/missing).")
+    lines.append("# TYPE agent_auth_valid gauge")
+    for s in statuses:
+        aid = _get_val(s, "id") or _get_val(s, "agent_id") or "unknown"
+        name = _get_val(s, "name") or _get_val(s, "display_name") or aid
+        prov = _get_val(s, "provider") or "unknown"
+        cat = _get_val(s, "category") or "personal"
+        auth = str(_get_val(s, "auth_status", "valid") or "valid").lower()
+        is_val = 1 if auth == "valid" else 0
+        labels = f'agent_id="{_esc(aid)}",agent_name="{_esc(name)}",provider="{_esc(prov)}",category="{_esc(cat)}"'
+        lines.append(f"agent_auth_valid{{{labels}}} {is_val}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
 def normalize_agent_identity(raw_name: str) -> tuple[str, str, str]:
     """Returns (agent_id, agent_name, provider) for any agent identifier or display name."""
     cleaned = raw_name.strip()
@@ -4006,6 +4259,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           <button class="theme-btn" data-theme="light" onclick="setTheme('light')">☀️ Light</button>
         </div>
         <button class="btn-secondary" onclick="openScheduleModal()">⏰ Morning Priming</button>
+        <button class="btn-secondary" onclick="exportData('snapshots')" title="Download timeseries snapshots as CSV">📥 Export CSV</button>
+        <a href="/metrics" target="_blank" class="btn-secondary" style="text-decoration: none; display: inline-flex; align-items: center;" title="View Prometheus Metrics exposition endpoint">📈 Metrics</a>
         <button class="btn-secondary" onclick="fetchData(true)">🔄 Refresh</button>
         <button class="btn-primary" id="btn-poke-all" onclick="triggerPokeAll()">⚡ Poke All Idle</button>
       </div>
@@ -4314,6 +4569,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         btn.disabled = false;
         btn.innerHTML = "⚡ Poke All Idle";
       }
+    }
+
+    function exportData(type = 'snapshots') {
+      window.location.href = `/api/export?format=csv&type=${type}`;
     }
 
     async function triggerPoke(agentId, force = false) {
@@ -5211,6 +5470,35 @@ class SimpleDashboardHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps(data).encode("utf-8"))
+        elif self.path in ("/metrics", "/metrics/"):
+            statuses = fetch_all_statuses()
+            metrics_text = render_prometheus_metrics(statuses)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(metrics_text.encode("utf-8"))
+        elif self.path.startswith("/api/export"):
+            parsed = urlparse(self.path)
+            qs = parse_qs(parsed.query)
+            export_type = qs.get("type", ["snapshots"])[0].lower()
+            days_val = qs.get("days", [None])[0]
+            days = int(days_val) if (days_val and days_val.isdigit()) else None
+
+            now_str = datetime.now().strftime("%Y%m%d")
+            if export_type == "pokes":
+                csv_text = export_pokes_csv(days=days)
+                filename = f"agent_quota_pokes_{now_str}.csv"
+            else:
+                csv_text = export_snapshots_csv(days=days)
+                filename = f"agent_quota_snapshots_{now_str}.csv"
+
+            self.send_response(200)
+            self.send_header("Content-Type", "text/csv; charset=utf-8")
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(csv_text.encode("utf-8"))
         elif self.path.startswith("/api/backfill"):
             res = backfill_history()
             _dash_update_event.set()
@@ -5803,6 +6091,32 @@ def run_schedule_remove_cmd() -> None:
         print(f"✖ {res.get('message', 'Failed to remove scheduled task.')}\n")
 
 
+def run_metrics_cmd() -> None:
+    """Renders agent quota metrics in standard Prometheus exposition format."""
+    statuses = fetch_all_statuses()
+    output = render_prometheus_metrics(statuses)
+    sys.stdout.write(output)
+    sys.stdout.flush()
+
+
+def run_export_cmd(
+    filepath: Optional[str] = None,
+    export_type: str = "snapshots",
+    days: Optional[int] = None,
+) -> None:
+    """Exports historical quota snapshots or pokes to CSV."""
+    if export_type == "pokes":
+        csv_text = export_pokes_csv(filepath=filepath, days=days)
+    else:
+        csv_text = export_snapshots_csv(filepath=filepath, days=days)
+
+    if not filepath or filepath.strip() == "-":
+        sys.stdout.write(csv_text)
+        sys.stdout.flush()
+    else:
+        print(f"✔ Successfully exported {export_type} history to {filepath}\n")
+
+
 # ---------------------------------------------------------------------------
 # CLI Entrypoint
 # ---------------------------------------------------------------------------
@@ -6004,10 +6318,32 @@ Examples:
         help="Backfill historical poke events from legacy schedule logs and state files into SQLite database.",
     )
     parser.add_argument(
+        "--metrics",
+        action="store_true",
+        help="Output live quota metrics in standard Prometheus exposition text format.",
+    )
+    parser.add_argument(
+        "--export-csv",
+        "--csv",
+        nargs="?",
+        const="-",
+        default=None,
+        metavar="FILE",
+        help="Export historical quota data to CSV file (or stdout if omitted or '-').",
+    )
+    parser.add_argument(
+        "--export-type",
+        "--type",
+        dest="export_type",
+        choices=["snapshots", "pokes"],
+        default="snapshots",
+        help="Data type to export ('snapshots' or 'pokes', default: snapshots).",
+    )
+    parser.add_argument(
         "cmd",
         nargs="?",
-        choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule", "auto", "analytics", "insights", "backfill", "history"],
-        help="Optional positional command alias ('status', 'poke', 'dashboard', 'poke-watch', 'prompt', 'schedule', 'auto', 'analytics', 'backfill')",
+        choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule", "auto", "analytics", "insights", "backfill", "history", "metrics", "export"],
+        help="Optional positional command alias ('status', 'poke', 'dashboard', 'poke-watch', 'prompt', 'schedule', 'auto', 'analytics', 'backfill', 'metrics', 'export')",
     )
     parser.add_argument(
         "extra_args",
@@ -6070,6 +6406,24 @@ Examples:
         format_spec = args.prompt_format or (args.extra_args[0] if args.extra_args else None)
         output = format_prompt(preset_or_format=format_spec, refresh=args.refresh)
         print(output)
+        return
+
+    is_metrics = args.metrics or (args.cmd == "metrics")
+    if is_metrics:
+        run_metrics_cmd()
+        return
+
+    is_export = (args.export_csv is not None) or (args.cmd == "export")
+    if is_export:
+        filepath = args.export_csv
+        export_type = args.export_type
+        if args.cmd == "export" and args.extra_args:
+            for a in args.extra_args:
+                if a.lower() in ("snapshots", "pokes"):
+                    export_type = a.lower()
+                elif filepath is None or filepath == "-":
+                    filepath = a
+        run_export_cmd(filepath=filepath, export_type=export_type, days=args.days)
         return
 
     is_analytics = args.analytics or (args.cmd in ("analytics", "insights"))

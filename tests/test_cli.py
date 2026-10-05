@@ -457,6 +457,46 @@ def test_agents_standalone_run_auto_checker_live(monkeypatch):
     assert res is True
 
 
+def test_cli_metrics_flag(monkeypatch, capsys):
+    import sys
+    from agent_quota_tracker.cli import main
+    from agent_quota_tracker.models import AgentStatus
+
+    dummy = AgentStatus(
+        id="agy",
+        name="Google Antigravity (AGY)",
+        provider="agy",
+        is_active=True,
+        used_percent=12.0,
+        time_remaining_seconds=3600,
+        category="personal",
+    )
+    monkeypatch.setattr("agent_quota_tracker.cli.get_all_statuses", lambda: [dummy])
+    monkeypatch.setattr(sys, "argv", ["agents", "--metrics"])
+
+    main()
+    out = capsys.readouterr().out
+    assert "agent_quota_tracker_up 1" in out
+    assert 'agent_quota_used_percent{agent_id="agy"' in out
+
+
+def test_cli_export_subcommand(monkeypatch, capsys):
+    import sys
+    from agent_quota_tracker.cli import main
+
+    monkeypatch.setattr(
+        "agent_quota_tracker.history.export_snapshots_csv",
+        lambda filepath=None, days=None: "header1,header2\nv1,v2\n",
+    )
+    monkeypatch.setattr(sys, "argv", ["agents", "export", "--csv", "-"])
+
+    main()
+    out = capsys.readouterr().out
+    assert "header1,header2" in out
+    assert "v1,v2" in out
+
+
+
 
 
 

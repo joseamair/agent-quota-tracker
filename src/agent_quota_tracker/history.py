@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
 import re
@@ -516,3 +518,153 @@ def backfill_history(
         "snapshots_imported": snaps_imported,
         "sources": sources_used,
     }
+
+
+def export_snapshots_csv(
+    filepath: Optional[str | Path] = None,
+    days: Optional[int] = None,
+    agent_id: Optional[str] = None,
+    db_path: Optional[Path] = None,
+) -> str:
+    """Exports quota snapshot time-series data to CSV.
+
+    If filepath is specified and not '-', writes output to that path.
+    Always returns the generated CSV text.
+    """
+    init_db(db_path)
+    conn = get_connection(db_path)
+    try:
+        cur = conn.cursor()
+        query = """
+            SELECT timestamp_iso, timestamp, agent_id, agent_name, provider,
+                   is_active, used_percent, weekly_used_percent, time_remaining_seconds
+            FROM snapshots
+        """
+        params: list[Any] = []
+        conditions: list[str] = []
+
+        if days is not None and days > 0:
+            cutoff = time.time() - (days * 86400)
+            conditions.append("timestamp >= ?")
+            params.append(cutoff)
+
+        if agent_id:
+            conditions.append("(agent_id = ? OR agent_id = ?)")
+            params.extend([agent_id, f"claude-{agent_id}"])
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        query += " ORDER BY timestamp ASC"
+
+        cur.execute(query, tuple(params))
+        rows = cur.fetchall()
+
+        output = io.StringIO()
+        writer = csv.writer(output, lineterminator="\n")
+        writer.writerow([
+            "timestamp_iso",
+            "timestamp",
+            "agent_id",
+            "agent_name",
+            "provider",
+            "is_active",
+            "used_percent",
+            "weekly_used_percent",
+            "time_remaining_seconds",
+        ])
+
+        for r in rows:
+            writer.writerow([
+                r["timestamp_iso"],
+                r["timestamp"],
+                r["agent_id"],
+                r["agent_name"],
+                r["provider"],
+                1 if r["is_active"] else 0,
+                r["used_percent"],
+                r["weekly_used_percent"] if r["weekly_used_percent"] is not None else "",
+                r["time_remaining_seconds"],
+            ])
+
+        csv_text = output.getvalue()
+        if filepath and str(filepath).strip() != "-":
+            p = Path(filepath)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(csv_text, encoding="utf-8")
+
+        return csv_text
+    finally:
+        conn.close()
+
+
+def export_pokes_csv(
+    filepath: Optional[str | Path] = None,
+    days: Optional[int] = None,
+    agent_id: Optional[str] = None,
+    db_path: Optional[Path] = None,
+) -> str:
+    """Exports historical poke action records to CSV.
+
+    If filepath is specified and not '-', writes output to that path.
+    Always returns the generated CSV text.
+    """
+    init_db(db_path)
+    conn = get_connection(db_path)
+    try:
+        cur = conn.cursor()
+        query = """
+            SELECT timestamp_iso, timestamp, agent_id, agent_name, action, message
+            FROM pokes
+        """
+        params: list[Any] = []
+        conditions: list[str] = []
+
+        if days is not None and days > 0:
+            cutoff = time.time() - (days * 86400)
+            conditions.append("timestamp >= ?")
+            params.append(cutoff)
+
+        if agent_id:
+            conditions.append("(agent_id = ? OR agent_id = ?)")
+            params.extend([agent_id, f"claude-{agent_id}"])
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        query += " ORDER BY timestamp ASC"
+
+        cur.execute(query, tuple(params))
+        rows = cur.fetchall()
+
+        output = io.StringIO()
+        writer = csv.writer(output, lineterminator="\n")
+        writer.writerow([
+            "timestamp_iso",
+            "timestamp",
+            "agent_id",
+            "agent_name",
+            "action",
+            "message",
+        ])
+
+        for r in rows:
+            writer.writerow([
+                r["timestamp_iso"],
+                r["timestamp"],
+                r["agent_id"],
+                r["agent_name"],
+                r["action"],
+                r["message"] or "",
+            ])
+
+        csv_text = output.getvalue()
+        if filepath and str(filepath).strip() != "-":
+            p = Path(filepath)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(csv_text, encoding="utf-8")
+
+        return csv_text
+    finally:
+        conn.close()
+

@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Proactive Token Expiration & Auth Health Guard**:
+- **Prometheus Metrics Endpoint & Timeseries CSV Export** ([#48](https://github.com/joseamair/agent-quota-tracker/issues/48)):
+  - **Prometheus Metrics Exposition (`GET /metrics`, `agents --metrics`)**: Exposes live quota metrics in standard Prometheus version 0.0.4 text exposition format via Web Dashboard HTTP endpoint (`/metrics`, `/metrics/`) and CLI (`agents --metrics`, `agents metrics`).
+  - **Standard Prometheus Gauges**: Provides `agent_quota_tracker_up`, `agent_quota_used_percent`, `agent_weekly_used_percent`, `agent_quota_remaining_fraction`, `agent_time_remaining_seconds`, `agent_is_active`, and `agent_auth_valid` labeled with `agent_id`, `agent_name`, `provider`, and `category`.
+  - **Historical Timeseries CSV Export (`agents export --csv`, `GET /api/export`)**: Enables exporting historical SQLite snapshots and poke records to CSV via CLI (`agents --export-csv [path]`, `agents export [--csv [path]] [--type snapshots|pokes] [--days N]`) or direct download via Web Dashboard (`GET /api/export?format=csv&type=snapshots&days=N`).
+  - **Web Dashboard Quick Access**: Added "📥 Export CSV" download button and "📈 Metrics" link to the Dashboard header toolbar for 1-click Prometheus and Grafana integration.
+  - **Tri-Engine Parity**: Fully implemented across modular Python package (`src/agent_quota_tracker/`), standalone runner (`agents.py`), and native PowerShell (`agents_native.ps1`).
+- **Proactive Token Expiration & Auth Health Guard** ([#46](https://github.com/joseamair/agent-quota-tracker/issues/46)):
   - **Local Pre-Flight Inspection**: Inspects local OAuth credentials prior to network queries, reading `expiresAt` epoch millisecond timestamps from Anthropic/CCS `.credentials.json` and Copilot auth tokens to detect expirations before HTTP calls.
   - **HTTP 401/403 Error Detection**: Intercepts OAuth token expiration responses across Anthropic Claude, Cursor, and Copilot APIs, flagging accounts with `auth_status="expired"`.
   - **Distinct Visual Badging**: Displays bold red `⚠️ EXPIRED` and bold yellow `⚠️ NO AUTH` badges with `Re-auth` / `Login req` indicators across all terminal table sizes and web dashboard cards.

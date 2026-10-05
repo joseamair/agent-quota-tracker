@@ -76,6 +76,14 @@ param(
     [Alias("ri")]
     [int]$RefreshInterval = 15,
 
+    [switch]$Metrics,
+
+    [Alias("csv")]
+    [string]$ExportCsv,
+
+    [Alias("type")]
+    [string]$ExportType = "snapshots",
+
     [Alias("h", "?")]
     [switch]$Help
 )
@@ -100,6 +108,9 @@ OPTIONS:
   -Analytics, -insights  Display quota consumption velocity, peak hours, and optimal priming analytics.
   -Days <int>            Number of days to analyze for analytics (default: 7).
   -Backfill              Backfill past poke history from legacy logs into SQLite database.
+  -Metrics               Output live quota metrics in standard Prometheus exposition text format.
+  -ExportCsv <path>      Export historical quota snapshots or pokes to CSV (default stdout if path omitted).
+  -ExportType <type>     Data type to export with -ExportCsv ('snapshots' or 'pokes', default: snapshots).
   -Json, -j              Output raw machine-readable JSON status for all accounts.
   -Watch, -w [seconds]   Continuously refresh the status table every N seconds (default: 15s).
   -Poke, -p              Trigger a prompt on inactive accounts to start the 5h window.
@@ -1595,6 +1606,23 @@ if ($PokeWatch) {
         Write-Host "`n`n⚡ Poke watchdog mode stopped.`n" -ForegroundColor Yellow
         exit 0
     }
+}
+
+if ($Metrics) {
+    if (Test-Path "$PSScriptRoot\agents.py") {
+        & uv run python "$PSScriptRoot\agents.py" --metrics
+        exit $LASTEXITCODE
+    }
+    exit 0
+}
+
+if ($PSBoundParameters.ContainsKey('ExportCsv')) {
+    $csvArg = if ($ExportCsv) { $ExportCsv } else { "-" }
+    if (Test-Path "$PSScriptRoot\agents.py") {
+        & uv run python "$PSScriptRoot\agents.py" export --export-type $ExportType --days $Days --csv $csvArg
+        exit $LASTEXITCODE
+    }
+    exit 0
 }
 
 if ($Poke) {

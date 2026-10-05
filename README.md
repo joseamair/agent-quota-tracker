@@ -30,6 +30,8 @@ A lightweight, local quota monitoring system and web dashboard designed for deve
   - [`agents --status --watch`](#10-agents---status---watch--w)
   - [`agents --analytics`](#11-agents---analytics----insights--agents-analytics-quota-velocity--historical-burn-down)
   - [`agents --backfill`](#12-agents---backfill-historical-activity--schedule-log-importer)
+  - [`agents --metrics`](#13-agents---metrics-prometheus-metrics-endpoint--cli-output)
+  - [`agents export --csv`](#14-agents-export---csv-historical-timeseries-csv-export)
 - [Global PowerShell Integration](#-global-powershell-integration)
 - [Web Dashboard Preview](#-web-dashboard-preview)
 - [Linux & macOS Compatibility & Setup Guide](#-linux--macos-compatibility--setup-guide)
@@ -103,6 +105,9 @@ A lightweight, local quota monitoring system and web dashboard designed for deve
   - Displays prominent `⚠️ EXPIRED` (bold red) and `⚠️ NO AUTH` (bold yellow) status badges on terminal tables and dashboard cards.
   - Renders a dedicated `🔐 Authentication Health Alerts` panel box on CLI and alert pills in Web Dashboard providing exact remediation commands (e.g. `ccs <profile> login`, `claude login`, `gh auth login`).
   - Guards automated poke tasks (`--poke`, `--auto`, `--poke-watch`, `--poke-at`) from dispatching prompts to expired accounts without `--force`.
+- **Prometheus Metrics & CSV Timeseries Export**:
+  - Live Prometheus 0.0.4 text-format exporter served at `GET /metrics` on the Web Dashboard and via `agents --metrics` CLI. Exposes gauge metrics (`agent_quota_used_percent`, `agent_weekly_used_percent`, `agent_time_remaining_seconds`, `agent_auth_valid`, etc.) with rich multi-attribute labels.
+  - RFC 4180 CSV export for historical snapshots and priming logs via `agents export --csv` (with `--days N`, `--type snapshots|pokes`, and `--out <file>`) and `GET /api/export` on the Web Dashboard.
 - **Tri-Engine Implementation**:
   - Full Python package with Rich terminal formatting (`uv run agents` or `python -m agent_quota_tracker`).
   - Standalone single-file Python runner (`agents.py`).
@@ -473,6 +478,65 @@ python agents.py --backfill
 
 # With native PowerShell:
 .\agents_native.ps1 -Backfill
+```
+
+---
+
+### 13. `agents --metrics` (Prometheus Metrics Endpoint & CLI Output)
+Exposes agent quota and health metrics in standard **Prometheus version 0.0.4 text format** for scraping by Prometheus, VictoriaMetrics, or Datadog:
+- **Available Gauges**:
+  - `agent_quota_tracker_up`: Daemon liveness indicator (always 1).
+  - `agent_quota_used_percent`: 5-hour rolling threshold window utilization percent (0.0 to 100.0).
+  - `agent_quota_remaining_fraction`: Remaining 5-hour quota expressed as a fraction (0.0 to 1.0).
+  - `agent_weekly_used_percent`: 7-day rolling window quota utilization percent (0.0 to 100.0).
+  - `agent_time_remaining_seconds`: Remaining seconds on active 5-hour rolling window (0 if inactive).
+  - `agent_is_active`: Binary gauge (1 if active window running, 0 if inactive/idle).
+  - `agent_auth_valid`: Authentication status gauge (1 if valid, 0 if expired or unauthenticated).
+- **Metric Labels**: Includes `id`, `name`, `provider`, and `category` tags on each metric line.
+- **Web Dashboard Integration**: Automatically served at `http://localhost:5050/metrics`.
+
+```powershell
+# Output Prometheus metrics to stdout:
+agents --metrics
+# Or via subcommand:
+agents metrics
+
+# Standalone Python runner:
+python agents.py --metrics
+
+# With native PowerShell:
+.\agents_native.ps1 -Metrics
+
+# Web Dashboard scrape endpoint:
+curl http://localhost:5050/metrics
+```
+
+---
+
+### 14. `agents export --csv` (Historical Timeseries CSV Export)
+Exports historical quota snapshots and priming audit logs stored in SQLite (`~/.agent_quota_tracker/history.db`) to standard RFC 4180 CSV format:
+- **Supported Export Types**:
+  - `snapshots` (default): Timestamped records of 5-hour usage, weekly usage, remaining seconds, active state, and auth validity.
+  - `pokes`: Timestamped audit trail of priming events, exit codes, latency, and model verification responses.
+- **Filtering Options**: Filter by recency using `--days <N>` (e.g. past 7, 14, 30 days) or filter to a single agent with `--agent <id>`.
+- **Output Destination**: Prints directly to standard output (ideal for piping to `jq`, `grep`, or file redirection) or writes directly to disk with `--out <file>`.
+- **Web Dashboard**: Also available via direct download link or `GET /api/export?type=snapshots&days=7`.
+
+```powershell
+# Export past 7 days of quota snapshots to stdout:
+agents export --csv
+
+# Export past 30 days of snapshots to a CSV file:
+agents export --csv --days 30 --out snapshots_30d.csv
+
+# Export priming verification logs:
+agents export --csv --type pokes --days 14 --out pokes.csv
+
+# Standalone Python runner:
+python agents.py --export-csv --days 7 --out history.csv
+
+# With native PowerShell:
+.\agents_native.ps1 -ExportCsv -Days 7
 ```
 
 ---

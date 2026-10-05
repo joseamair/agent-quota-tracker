@@ -333,3 +333,38 @@ def test_dashboard_handler_handle_catches_connection_abort():
         # Should catch and handle without raising
         handler.handle()
 
+
+def test_get_metrics_endpoint(dashboard_test_server):
+    dummy_status = AgentStatus(
+        id="agy",
+        name="Google Antigravity (AGY)",
+        provider="agy",
+        is_active=True,
+        used_percent=15.0,
+        time_remaining_seconds=1800,
+        category="personal",
+        auth_status="valid",
+    )
+    with patch("agent_quota_tracker.dashboard.get_all_statuses", return_value=[dummy_status]):
+        url = f"{dashboard_test_server}/metrics"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            assert resp.status == 200
+            assert "text/plain" in resp.headers.get("Content-Type", "")
+            body = resp.read().decode("utf-8")
+            assert "agent_quota_tracker_up 1" in body
+            assert 'agent_quota_used_percent{agent_id="agy"' in body
+
+
+def test_get_api_export_endpoint(dashboard_test_server):
+    with patch("agent_quota_tracker.history.export_snapshots_csv", return_value="col1,col2\nval1,val2\n"):
+        url = f"{dashboard_test_server}/api/export?format=csv&type=snapshots"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            assert resp.status == 200
+            assert "text/csv" in resp.headers.get("Content-Type", "")
+            assert "attachment; filename=" in resp.headers.get("Content-Disposition", "")
+            body = resp.read().decode("utf-8")
+            assert "col1,col2" in body
+
+

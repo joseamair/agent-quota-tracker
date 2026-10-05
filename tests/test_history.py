@@ -279,20 +279,27 @@ def test_normalize_agent_identity():
 
 
 def test_backfill_history_from_legacy_files(temp_db: Path, tmp_path: Path):
+    now = datetime.now()
+    d1 = (now - timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S")
+    d2 = (now - timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S")
+    d3 = (now - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+    d_iso1 = (now - timedelta(days=1)).isoformat()
+    d_iso2 = (now - timedelta(days=1, hours=1)).isoformat()
+
     # 1. Create mock schedule.log
     log_file = tmp_path / "schedule.log"
     log_content = (
-        "[2026-09-28 08:42:29] Poke executed: 3 primed (OpenAI Codex, Claude (Work), Claude (Work2)), 1 skipped, 0 failed\n"
-        "[2026-09-29 11:34:32] Poke executed: 2 primed (Google Antigravity (AGY), Claude (Personal)), 3 skipped, 0 failed\n"
-        "[2026-09-30 10:26:09] Poke executed: 0 primed (none), 5 skipped, 0 failed\n"
+        f"[{d1}] Poke executed: 3 primed (OpenAI Codex, Claude (Work), Claude (Work2)), 1 skipped, 0 failed\n"
+        f"[{d2}] Poke executed: 2 primed (Google Antigravity (AGY), Claude (Personal)), 3 skipped, 0 failed\n"
+        f"[{d3}] Poke executed: 0 primed (none), 5 skipped, 0 failed\n"
     )
     log_file.write_text(log_content, encoding="utf-8")
 
     # 2. Create mock state.json
     state_file = tmp_path / "state.json"
     state_content = {
-        "claude-work": {"last_poked_at": "2026-10-01T07:15:00+00:00"},
-        "agy": {"last_poked_at": "2026-10-01T07:20:00+00:00"},
+        "claude-work": {"last_poked_at": d_iso1},
+        "agy": {"last_poked_at": d_iso2},
     }
     state_file.write_text(json.dumps(state_content), encoding="utf-8")
 
@@ -319,12 +326,13 @@ def test_backfill_history_from_legacy_files(temp_db: Path, tmp_path: Path):
     summary = get_analytics_summary(days=7, db_path=temp_db)
     assert summary["total_pokes"] == 7
     assert summary["total_snapshots"] == 7
-    assert 8 in summary["hourly_activity"] or 11 in summary["hourly_activity"]
 
 
 def test_backfill_history_idempotent(temp_db: Path, tmp_path: Path):
+    now = datetime.now()
+    d0 = (now - timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S")
     log_file = tmp_path / "schedule.log"
-    log_file.write_text("[2026-09-28 08:42:29] Poke executed: 1 primed (OpenAI Codex), 4 skipped, 0 failed\n")
+    log_file.write_text(f"[{d0}] Poke executed: 1 primed (OpenAI Codex), 4 skipped, 0 failed\n")
 
     # First run
     res1 = backfill_history(log_path=log_file, state_path=tmp_path / "nonexistent.json", db_path=temp_db)

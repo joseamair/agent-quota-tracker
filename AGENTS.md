@@ -204,6 +204,16 @@ To automate this strategy without manual terminal loops, the following features 
   - Safe skip guard preventing automated poke routines (`--poke`, `--auto`, `--poke-watch`, `--poke-at`) from dispatching prompts to expired accounts without `--force`.
   - Zero third-party dependencies; full Tri-Engine Parity across modular Python package, standalone runner (`agents.py`), and pure native PowerShell (`agents_native.ps1`).
 
+### Feature 11: Prometheus Metrics Endpoint & Timeseries CSV Export [DELIVERED - v1.3.0]
+- **Tracking Issue**: [#48](https://github.com/joseamair/agent-quota-tracker/issues/48)
+- **Command**: `agents --metrics`, `agents metrics`, `agents export --csv`, `agents export --csv --type pokes --days 14`
+- **Architecture**:
+  - Live Prometheus 0.0.4 text format metrics exporter exposing 7 gauge metrics (`agent_quota_tracker_up`, `agent_quota_used_percent`, `agent_weekly_used_percent`, `agent_quota_remaining_fraction`, `agent_time_remaining_seconds`, `agent_is_active`, `agent_auth_valid`) with clean escaping and rich labels (`id`, `name`, `provider`, `category`).
+  - Served directly at `GET /metrics` on the embedded Web Dashboard server (`localhost:5050/metrics`) and via `agents --metrics` CLI command.
+  - Timeseries CSV export engine querying local SQLite database (`~/.agent_quota_tracker/history.db`) with date-range (`--days N`) and agent filtering (`--agent <id>`).
+  - Web Dashboard integration with quick-access "📥 Export CSV" and "📈 Metrics" toolbar buttons and `GET /api/export` attachment route.
+  - Zero third-party dependencies; full Tri-Engine Parity across modular Python package (`src/agent_quota_tracker/metrics.py`, `history.py`), standalone runner (`agents.py`), and pure native PowerShell (`agents_native.ps1 -Metrics`, `-ExportCsv`).
+
 ---
 
 ## 6. Security & Isolation Principles

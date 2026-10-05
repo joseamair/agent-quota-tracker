@@ -916,6 +916,35 @@ def run_backfill_cmd() -> None:
         console.print("[dim]All legacy records are already up to date in SQLite history.db (0 duplicates added).[/dim]\n")
 
 
+def run_metrics_cmd() -> None:
+    """Renders agent quota metrics in standard Prometheus exposition format."""
+    from agent_quota_tracker.metrics import render_prometheus_metrics
+
+    statuses = get_all_statuses()
+    output = render_prometheus_metrics(statuses)
+    sys.stdout.write(output)
+    sys.stdout.flush()
+
+
+def run_export_cmd(
+    filepath: Optional[str] = None,
+    export_type: str = "snapshots",
+    days: Optional[int] = None,
+) -> None:
+    """Exports historical quota snapshots or pokes to CSV."""
+    from agent_quota_tracker.history import export_pokes_csv, export_snapshots_csv
+
+    if export_type == "pokes":
+        csv_text = export_pokes_csv(filepath=filepath, days=days)
+    else:
+        csv_text = export_snapshots_csv(filepath=filepath, days=days)
+
+    if not filepath or filepath.strip() == "-":
+        sys.stdout.write(csv_text)
+        sys.stdout.flush()
+    else:
+        console.print(f"[bold green]✔ Successfully exported {export_type} history to [cyan]{filepath}[/cyan][/bold green]\n")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -1123,10 +1152,32 @@ Examples:
         help="Backfill historical poke events from legacy schedule logs and state files into SQLite database.",
     )
     parser.add_argument(
+        "--metrics",
+        action="store_true",
+        help="Output live quota metrics in standard Prometheus exposition text format.",
+    )
+    parser.add_argument(
+        "--export-csv",
+        "--csv",
+        nargs="?",
+        const="-",
+        default=None,
+        metavar="FILE",
+        help="Export historical quota data to CSV file (or stdout if omitted or '-').",
+    )
+    parser.add_argument(
+        "--export-type",
+        "--type",
+        dest="export_type",
+        choices=["snapshots", "pokes"],
+        default="snapshots",
+        help="Data type to export ('snapshots' or 'pokes', default: snapshots).",
+    )
+    parser.add_argument(
         "subcommand",
         nargs="?",
-        choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule", "auto", "analytics", "insights", "backfill", "history"],
-        help="Optional positional subcommand alias for status, poke, dashboard, poke-watch, prompt, schedule, auto, analytics, or backfill",
+        choices=["status", "poke", "dashboard", "poke-watch", "prompt", "schedule", "auto", "analytics", "insights", "backfill", "history", "metrics", "export"],
+        help="Optional positional subcommand alias for status, poke, dashboard, poke-watch, prompt, schedule, auto, analytics, backfill, metrics, or export",
     )
     parser.add_argument(
         "extra_args",
@@ -1191,6 +1242,24 @@ Examples:
         format_spec = args.prompt_format or (args.extra_args[0] if args.extra_args else None)
         output = format_prompt(preset_or_format=format_spec, refresh=args.refresh)
         print(output)
+        return
+
+    is_metrics = args.metrics or (args.subcommand == "metrics")
+    if is_metrics:
+        run_metrics_cmd()
+        return
+
+    is_export = (args.export_csv is not None) or (args.subcommand == "export")
+    if is_export:
+        filepath = args.export_csv
+        export_type = args.export_type
+        if args.subcommand == "export" and args.extra_args:
+            for a in args.extra_args:
+                if a.lower() in ("snapshots", "pokes"):
+                    export_type = a.lower()
+                elif filepath is None or filepath == "-":
+                    filepath = a
+        run_export_cmd(filepath=filepath, export_type=export_type, days=args.days)
         return
 
     is_analytics = args.analytics or (args.subcommand in ("analytics", "insights"))

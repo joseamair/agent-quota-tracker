@@ -55,14 +55,13 @@ A lightweight, local quota monitoring system and web dashboard designed for deve
 | **OpenAI Codex** | OpenAI | `codex` CLI | Real-time JSON-RPC (`account/rateLimits/read`) | Stable |
 | **Claude (Multi-Account)** | Anthropic | CCS profile (`~/.ccs/instances/`) | Instant live OAuth Usage API (`api.anthropic.com`) | Stable |
 | **Claude (Standard CLI)** | Anthropic | Official `claude` (`~/.claude/`) | Direct OAuth Usage API with fallback to `claude -p` | Stable |
-| **Cursor (Composer)** | Cursor / Anysphere | Local `state.vscdb` / JWT | Direct Usage API (`api2.cursor.sh/auth/usage`) | 🧪 Beta |
-| **Windsurf (Cascade)** | Codeium | `~/.codeium/config.json` | Codeium User Metadata API | 🧪 Beta |
-| **GitHub Copilot CLI** | GitHub | `gh auth token` / hosts.json | Copilot Internal Token API (`api.github.com/copilot_internal/v2/token`) | 🧪 Beta |
-| **Aider / OpenRouter** | OpenRouter / Aider | Env `OPENROUTER_API_KEY` | OpenRouter Auth Key & Credit API (`openrouter.ai/api/v1/auth/key`) | 🧪 Beta |
+| **Cursor (Composer)** | Cursor / Anysphere | Local `state.vscdb` / JWT / Env | Direct Usage API (`api2.cursor.sh/auth/usage`) | 🟢 GA |
+| **Windsurf (Cascade)** | Codeium | `~/.codeium/config.json` / Env | Codeium User Metadata API | 🟢 GA |
+| **GitHub Copilot CLI** | GitHub | `gh auth token` / hosts.json / Env | Copilot Internal Token API (`api.github.com/copilot_internal/v2/token`) | 🟢 GA |
+| **Aider / OpenRouter** | OpenRouter / Aider | Env `OPENROUTER_API_KEY` | OpenRouter Auth Key & Credit API (`openrouter.ai/api/v1/auth/key`) | 🟢 GA |
 
-> 📢 **Open for Community Testing & Contributions!**  
-> Support for **Cursor**, **Windsurf**, **GitHub Copilot CLI**, and **Aider / OpenRouter** has been implemented based on official developer specs and reverse-engineered token discovery mechanisms.  
-> If you have active subscriptions or tokens for any of these tools, we warmly invite you to enable them in your `agents.config.json` and share your feedback, validation reports, or pull requests to help refine and polish them!
+> 💡 **Community Agent Trackers (General Availability)**:  
+> Support for **Cursor**, **Windsurf**, **GitHub Copilot CLI**, and **Aider / OpenRouter** is fully integrated with cross-platform auto-discovery, environment variable fallbacks (`CURSOR_ACCESS_TOKEN`, `CODEIUM_API_KEY`, `COPILOT_TOKEN`, `OPENROUTER_API_KEY`), and proactive auth health checks. Enable them easily in your `agents.config.json`.
 
 > 💡 **Claude Multi-Account vs Single-Account Setup**:
 > - **Multi-Account (`ccs`)**: By default, this dashboard tracks 3 distinct Claude profiles (`personal`, `work`, `work2`) using the [Claude Code Switcher (`ccs`)](https://github.com/joseamair/ccs) tool. Each profile keeps its own tokens in `~/.ccs/instances/<profile>`.
@@ -704,7 +703,7 @@ Provider credentials and configurations are mapped automatically from your stand
 - [x] **Native Desktop Toast Notifications (`--notify`, `--test-notify`)** ([#20](https://github.com/joseamair/agent-quota-tracker/issues/20)): Zero-dependency native notifications for Windows, macOS, and Linux on poke events, cooldowns, and schedules.
 - [x] **OS-Level Scheduled Morning Priming Task Generator (`--schedule-install`)** ([#22](https://github.com/joseamair/agent-quota-tracker/issues/22)): Windows Task Scheduler, Linux crontab, and macOS launchd background task generator operating safely in user space.
 - [x] **Shell Prompt & Status Bar Integration (`--prompt`, `--prompt-format`)** ([#25](https://github.com/joseamair/agent-quota-tracker/issues/25)): Fast cached status segments for Starship, Oh-My-Posh, tmux, and PowerShell `$PROFILE`.
-- [x] **Additional AI Agent Trackers (Beta)** ([#21](https://github.com/joseamair/agent-quota-tracker/issues/21)): Modular trackers for Cursor, Windsurf, GitHub Copilot CLI, and Aider/OpenRouter.
+- [x] **Additional AI Agent Trackers (General Availability - GA)** ([#21](https://github.com/joseamair/agent-quota-tracker/issues/21), [#53](https://github.com/joseamair/agent-quota-tracker/issues/53)): Graduated modular trackers for Cursor, Windsurf, GitHub Copilot CLI, and Aider/OpenRouter with universal environment variable fallbacks and auth health validation.
 - [x] **Weekly Quota Exhaustion Guard & Sliding Window Ceiling Fix** ([#29](https://github.com/joseamair/agent-quota-tracker/issues/29)): Accurate 5h idle detection and safety guard skipping accounts with $\ge 100\%$ weekly usage unless `--force`.
 
 ### 🚀 Delivered in v1.1.0

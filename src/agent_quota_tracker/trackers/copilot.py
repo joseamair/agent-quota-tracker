@@ -81,6 +81,10 @@ class CopilotTracker(BaseTracker):
     def _get_token(self) -> Optional[str]:
         if self.token:
             return self.token
+        for env_var in ("COPILOT_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"):
+            val = os.environ.get(env_var)
+            if val and val.strip():
+                return val.strip()
         return self._discover_token()
 
     def _query_copilot_token_api(self, token: Optional[str]) -> tuple[Optional[dict[str, Any]], Optional[str]]:

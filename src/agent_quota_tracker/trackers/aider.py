@@ -47,7 +47,7 @@ class AiderTracker(BaseTracker):
 
     def _discover_api_key(self) -> Optional[str]:
         # 1. Environment variables
-        for env_var in ("OPENROUTER_API_KEY", "AIDER_API_KEY"):
+        for env_var in ("OPENROUTER_API_KEY", "AIDER_API_KEY", "OPENROUTER_KEY"):
             val = os.environ.get(env_var)
             if val and val.strip():
                 return val.strip()

@@ -68,6 +68,10 @@ class WindsurfTracker(BaseTracker):
     def _get_api_key(self) -> Optional[str]:
         if self.api_key:
             return self.api_key
+        for env_var in ("CODEIUM_API_KEY", "WINDSURF_API_KEY", "CODEIUM_TOKEN"):
+            val = os.environ.get(env_var)
+            if val and val.strip():
+                return val.strip()
         return self._discover_api_key()
 
     def _query_status_api(self, api_key: Optional[str]) -> tuple[Optional[dict[str, Any]], Optional[str]]:

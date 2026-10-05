@@ -196,3 +196,47 @@ def test_aider_poke():
             res = tracker.poke()
             assert res.action_taken == "poked"
             assert "0.58.0" in res.message
+
+
+# ==============================================================================
+# Environment Variable Resolution & GA Promotion Tests
+# ==============================================================================
+
+def test_cursor_env_var_token(monkeypatch):
+    monkeypatch.setenv("CURSOR_ACCESS_TOKEN", "env-cursor-token-999")
+    tracker = CursorTracker(access_token=None)
+    assert tracker._get_token() == "env-cursor-token-999"
+
+
+def test_cursor_env_var_cookie(monkeypatch):
+    monkeypatch.setenv("CURSOR_SESSION_COOKIE", "cookie-xyz-123")
+    tracker = CursorTracker(access_token=None, cookie=None)
+    assert tracker.cookie == "cookie-xyz-123"
+
+
+def test_windsurf_env_var_key(monkeypatch):
+    monkeypatch.setenv("CODEIUM_API_KEY", "env-codeium-key-777")
+    tracker = WindsurfTracker(api_key=None)
+    assert tracker._get_api_key() == "env-codeium-key-777"
+
+
+def test_copilot_env_var_token(monkeypatch):
+    monkeypatch.setenv("COPILOT_TOKEN", "env-copilot-token-888")
+    tracker = CopilotTracker(token=None)
+    assert tracker._get_token() == "env-copilot-token-888"
+
+
+def test_copilot_env_var_gh_token(monkeypatch):
+    monkeypatch.delenv("COPILOT_TOKEN", raising=False)
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_mock_token_444")
+    tracker = CopilotTracker(token=None)
+    assert tracker._get_token() == "ghp_mock_token_444"
+
+
+def test_aider_env_var_openrouter_key(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("AIDER_API_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_KEY", "sk-or-v1-custom")
+    tracker = AiderTracker(api_key=None)
+    assert tracker._get_api_key() == "sk-or-v1-custom"
+

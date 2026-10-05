@@ -177,11 +177,11 @@ To automate this strategy without manual terminal loops, the following features 
   - Client-side ticking countdown timers on each active card.
   - Full Tri-Engine Parity across modular Python package (`src/agent_quota_tracker/dashboard.py`), standalone runner (`agents.py`), and pure native PowerShell (`agents_native.ps1 -Dashboard`).
 
-### Feature 8: Additional Agent Trackers (Cursor, Windsurf, Copilot, Aider) [DELIVERED - v1.2.0 Beta]
-- **Tracking Issue**: [#21](https://github.com/joseamair/agent-quota-tracker/issues/21)
+### Feature 8: Additional Agent Trackers (Cursor, Windsurf, Copilot, Aider) [DELIVERED - v1.2.0 Beta, GA - v1.4.0]
+- **Tracking Issues**: [#21](https://github.com/joseamair/agent-quota-tracker/issues/21), [#53](https://github.com/joseamair/agent-quota-tracker/issues/53)
 - **Architecture**:
-  - Modular integrations for **Cursor** (`api2.cursor.sh/auth/usage` with SQLite token extraction), **Windsurf** (`api.codeium.com/register_user/` with `~/.codeium/config.json`), **GitHub Copilot CLI** (`api.github.com/copilot_internal/v2/token`), and **Aider / OpenRouter** (`openrouter.ai/api/v1/auth/key`).
-  - Open callout for community testing, validation, and contributions from active subscribers.
+  - Modular integrations for **Cursor** (`api2.cursor.sh/auth/usage` with SQLite token extraction + `CURSOR_ACCESS_TOKEN` / `CURSOR_SESSION_COOKIE`), **Windsurf** (`api.codeium.com/register_user/` with `~/.codeium/config.json` + `CODEIUM_API_KEY`), **GitHub Copilot CLI** (`api.github.com/copilot_internal/v2/token` with `gh auth token` / `hosts.json` + `COPILOT_TOKEN`), and **Aider / OpenRouter** (`openrouter.ai/api/v1/auth/key` with `OPENROUTER_API_KEY`).
+  - Full General Availability with proactive auth health guard integration and zero-dependency fallbacks.
   - Full Tri-Engine Parity across modular Python package, standalone runner (`agents.py`), and pure native PowerShell (`agents_native.ps1`).
 
 ### Feature 9: Local SQLite Historical Analytics & Burn-Down Charts (`--analytics`) [DELIVERED - v1.2.0]

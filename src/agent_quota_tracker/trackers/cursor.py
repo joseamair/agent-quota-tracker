@@ -35,7 +35,7 @@ class CursorTracker(BaseTracker):
         self._display_name = display_name
         self._category = category
         self.access_token = access_token
-        self.cookie = cookie
+        self.cookie = cookie or os.environ.get("CURSOR_SESSION_COOKIE") or os.environ.get("WORKOS_CURSOR_SESSION_TOKEN")
         self.db_path = db_path
 
     @property
@@ -87,6 +87,10 @@ class CursorTracker(BaseTracker):
     def _get_token(self) -> Optional[str]:
         if self.access_token:
             return self.access_token
+        for env_var in ("CURSOR_ACCESS_TOKEN", "CURSOR_TOKEN"):
+            val = os.environ.get(env_var)
+            if val and val.strip():
+                return val.strip()
         return self._discover_token_from_sqlite()
 
     def _query_usage_api(self, token: Optional[str]) -> tuple[Optional[dict[str, Any]], Optional[str]]:

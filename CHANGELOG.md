@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Interactive Full-Screen Terminal TUI (`agents tui`, `--tui`)** ([#50](https://github.com/joseamair/agent-quota-tracker/issues/50)):
+  - **Alternate Screen Buffer Navigation**: Terminal application running in alternate screen buffer (`\033[?1049h`), preserving prior scrollback and restoring cursor and terminal state cleanly on exit (`q`, `Esc`, `Ctrl+C`).
+  - **Intuitive Keyboard Control**: Navigate accounts with `↑`/`k` and `↓`/`j`, trigger single-account poke with `p`, force poke with `f`, poke all idle accounts with `a`, instant manual quota refresh with `r`, toggle interactive help overlay with `?`/`h`, and exit with `q`/`Esc`.
+  - **Real-Time Panels & Live Ticking**: Top header banner with active accounts ratio, earliest reset target, and live clock. Live table with colored utilization progress bars and auth badges (`OK`, `⚠️ EXPIRED`, `⚠️ NO AUTH`). Dedicated selected account inspector panel showing provider details and remediation advice. Live status bar capturing event responses.
+  - **Cross-Platform Non-Blocking Input**: Native zero-dependency keyboard listeners using `msvcrt` on Windows and `select`/`termios` on Linux and macOS.
+  - **Tri-Engine Parity**: Fully implemented across modular Python package (`src/agent_quota_tracker/tui.py`), standalone runner (`agents.py`), and native PowerShell (`agents_native.ps1 -Tui`).
 - **Prometheus Metrics Endpoint & Timeseries CSV Export** ([#48](https://github.com/joseamair/agent-quota-tracker/issues/48)):
   - **Prometheus Metrics Exposition (`GET /metrics`, `agents --metrics`)**: Exposes live quota metrics in standard Prometheus version 0.0.4 text exposition format via Web Dashboard HTTP endpoint (`/metrics`, `/metrics/`) and CLI (`agents --metrics`, `agents metrics`).
   - **Standard Prometheus Gauges**: Provides `agent_quota_tracker_up`, `agent_quota_used_percent`, `agent_weekly_used_percent`, `agent_quota_remaining_fraction`, `agent_time_remaining_seconds`, `agent_is_active`, and `agent_auth_valid` labeled with `agent_id`, `agent_name`, `provider`, and `category`.

@@ -84,6 +84,9 @@ param(
     [Alias("type")]
     [string]$ExportType = "snapshots",
 
+    [Alias("t")]
+    [switch]$Tui,
+
     [Alias("h", "?")]
     [switch]$Help
 )
@@ -128,6 +131,7 @@ OPTIONS:
   -ScheduleInstall <time>Install an OS-level background scheduled task to prime quotas daily (default: 07:30).
   -ScheduleStatus        Display status of the OS-level background scheduled morning priming task.
   -ScheduleRemove        Uninstall and remove the OS-level background scheduled morning priming task.
+  -Tui, -t               Launch the interactive full-screen terminal user interface (TUI).
   -Dashboard, -d         Launch the local web dashboard at http://localhost:5050.
   -Help, -h, -?          Show this help message and exit.
 
@@ -1636,6 +1640,17 @@ if ($Analytics) {
 
 if ($Backfill) {
     & uv run python "$PSScriptRoot\agents.py" --backfill
+    exit 0
+}
+
+if ($Tui) {
+    if (Test-Path "$PSScriptRoot\agents.py") {
+        & uv run python "$PSScriptRoot\agents.py" --tui
+        exit $LASTEXITCODE
+    } elseif (Get-Command python -ErrorAction SilentlyContinue) {
+        & python "$PSScriptRoot\agents.py" --tui
+        exit $LASTEXITCODE
+    }
     exit 0
 }
 

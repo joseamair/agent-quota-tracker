@@ -496,6 +496,38 @@ def test_cli_export_subcommand(monkeypatch, capsys):
     assert "v1,v2" in out
 
 
+def test_cli_tui_flag(monkeypatch):
+    import sys
+    from unittest.mock import MagicMock
+    from agent_quota_tracker.cli import main
+
+    mock_run = MagicMock()
+    monkeypatch.setattr("agent_quota_tracker.cli.run_tui_cmd", mock_run)
+    monkeypatch.setattr(sys, "argv", ["agents", "--tui"])
+
+    main()
+    mock_run.assert_called_once()
+
+
+def test_cli_tui_subcommand(monkeypatch):
+    import sys
+    from unittest.mock import MagicMock
+    from agent_quota_tracker.cli import main
+
+    mock_run = MagicMock()
+    monkeypatch.setattr("agent_quota_tracker.cli.run_tui_cmd", mock_run)
+    monkeypatch.setattr(sys, "argv", ["agents", "tui", "--refresh-interval", "20"])
+
+    main()
+    mock_run.assert_called_once_with(
+        refresh_interval=20,
+        notify=False,
+        force=False,
+        agent_id=None,
+    )
+
+
+
 
 
 

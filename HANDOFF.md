@@ -7,7 +7,7 @@ Welcome, incoming AI Coding Agent! This document gives you immediate, end-to-end
 ## 📌 Executive Summary
 
 - **Repository**: [`agent-quota-tracker`](https://github.com/joseamair/agent-quota-tracker)
-- **Current Version**: `v1.2.1` (Released 2026-10-03)
+- **Current Version**: `v1.3.0` (Released 2026-10-05)
 - **Repository Visibility**: Public GitHub Template repository
 - **Primary Goal**: High-performance local CLI monitor, autonomous watchdog daemon, and glassmorphism web dashboard tracking 5-hour rolling threshold windows and weekly quotas across AI coding agents (Claude via CCS & official CLI, OpenAI Codex, and Google Antigravity).
 

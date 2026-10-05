@@ -687,6 +687,11 @@ Provider credentials and configurations are mapped automatically from your stand
 
 ## 🗺️ Project Roadmap
 
+### 🚀 Delivered in v1.3.0
+- [x] **Interactive Full-Screen Terminal TUI (`agents tui`, `--tui`)** ([#50](https://github.com/joseamair/agent-quota-tracker/issues/50)): Implemented full-screen keyboard-driven terminal dashboard operating in alternate screen buffer (`\033[?1049h`), interactive row navigation, single-account poke, force poke, poke-all, manual API refresh, help overlay modal, and selected account inspector panel. Full Tri-Engine Parity.
+- [x] **Prometheus Metrics Endpoint & Timeseries CSV Export** ([#48](https://github.com/joseamair/agent-quota-tracker/issues/48)): Standard Prometheus version 0.0.4 text format exporter (`GET /metrics` and `agents --metrics`) and RFC 4180 CSV export for historical snapshots and priming logs (`agents export --csv` and `GET /api/export`). Full Tri-Engine Parity.
+- [x] **Proactive Token Expiration & Auth Health Guard** ([#46](https://github.com/joseamair/agent-quota-tracker/issues/46)): Local OAuth token inspection (`expiresAt` epoch ms), HTTP 401/403 detection, `⚠️ EXPIRED` / `⚠️ NO AUTH` visual badges, dedicated CLI & Dashboard `🔐 Authentication Health Alerts` remediation panel, and poke skip guards. Full Tri-Engine Parity.
+
 ### 🚀 Delivered in v1.2.1
 - [x] **Live In-Place Status Table Stream for Auto-Checker (`agents auto`, `--auto-poke`)** ([#42](https://github.com/joseamair/agent-quota-tracker/pull/42)): Real-time second-by-second active countdown ticker, periodic zero-prompt-token quota utilization refetching (default every 15s via `--refresh-interval`), and early idle detection. Full Tri-Engine Parity.
 
@@ -709,9 +714,8 @@ Provider credentials and configurations are mapped automatically from your stand
 - [x] **AGY & Codex False-Positive Quota Fixes** ([#16](https://github.com/joseamair/agent-quota-tracker/issues/16)): Strict idle window verification for sliding prospective timestamps.
 - [x] **Official Claude CLI Support**: Native single-account discovery and fallback to official Anthropic `claude` CLI.
 
-### 🔭 Future Roadmap (v1.3.0 & Beyond)
+### 🔭 Future Roadmap (v1.4.0 & Beyond)
 - [ ] **Track Repository Visitor Traffic and Views using Free GitHub Native APIs & Actions** ([#36](https://github.com/joseamair/agent-quota-tracker/issues/36)): Scheduled GitHub Action querying Traffic API with cumulative timeseries storage and `agents traffic` CLI / Dashboard widget.
-- [ ] **Proactive Token Expiration & Auth Health Guard**: Desktop notification and `⚠️ EXPIRED` badge when OAuth tokens expire.
 - [ ] **Webhook Alerts (Discord / Slack / Telegram)**: Remote notifications for headless servers and homelabs on morning priming and weekly quota thresholds.
 
 ---

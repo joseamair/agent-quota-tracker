@@ -550,9 +550,13 @@ An immersive, full-screen, keyboard-driven terminal dashboard designed for termi
 - **Interactive Keyboard Controls**:
   - `↑` / `k`: Navigate selection up through tracked accounts.
   - `↓` / `j`: Navigate selection down through tracked accounts.
+  - `/`: Enter interactive quick search and filter mode (filter by name, provider, category, status, or semantic keywords `idle`, `active`, `expired`, `auth`).
+  - `Backspace`: Remove characters while in filter search mode.
+  - `Enter`: Confirm filter query and return focus to table navigation.
+  - `Esc`: Clear active filter query (or cleanly exit TUI if filter is already empty).
   - `p`: Trigger smart poke on the selected account (if currently idle).
   - `f`: Force poke the selected account (even if already active).
-  - `a`: Poke all currently idle accounts in one command.
+  - `a`: Poke all currently idle accounts in one command (when filtered, only primes idle accounts matching the active filter).
   - `r`: Force immediate status re-fetch from provider APIs and local cache.
   - `?` or `h`: Toggle interactive floating help overlay modal.
   - `q` or `Esc`: Cleanly exit the TUI and restore standard terminal cursor and colors.
@@ -686,6 +690,10 @@ Provider credentials and configurations are mapped automatically from your stand
 
 ## 🗺️ Project Roadmap
 
+### 🚀 Delivered in v1.4.0
+- [x] **Community Agent Trackers General Availability (GA)** ([#53](https://github.com/joseamair/agent-quota-tracker/issues/53)): Graduated Cursor, Windsurf, GitHub Copilot CLI, and Aider/OpenRouter to GA with universal environment variable fallbacks and proactive auth health validation.
+- [x] **Interactive Quick Filter & Search in Terminal TUI** ([#55](https://github.com/joseamair/agent-quota-tracker/issues/55)): Real-time interactive search and filtering mode (`/` key) in `agents tui` for large fleet operations with multi-field substring matching, semantic keyword filtering (`idle`, `active`, `expired`, `auth`), and filtered poke-all.
+
 ### 🚀 Delivered in v1.3.0
 - [x] **Interactive Full-Screen Terminal TUI (`agents tui`, `--tui`)** ([#50](https://github.com/joseamair/agent-quota-tracker/issues/50)): Implemented full-screen keyboard-driven terminal dashboard operating in alternate screen buffer (`\033[?1049h`), interactive row navigation, single-account poke, force poke, poke-all, manual API refresh, help overlay modal, and selected account inspector panel. Full Tri-Engine Parity.
 - [x] **Prometheus Metrics Endpoint & Timeseries CSV Export** ([#48](https://github.com/joseamair/agent-quota-tracker/issues/48)): Standard Prometheus version 0.0.4 text format exporter (`GET /metrics` and `agents --metrics`) and RFC 4180 CSV export for historical snapshots and priming logs (`agents export --csv` and `GET /api/export`). Full Tri-Engine Parity.
@@ -703,7 +711,7 @@ Provider credentials and configurations are mapped automatically from your stand
 - [x] **Native Desktop Toast Notifications (`--notify`, `--test-notify`)** ([#20](https://github.com/joseamair/agent-quota-tracker/issues/20)): Zero-dependency native notifications for Windows, macOS, and Linux on poke events, cooldowns, and schedules.
 - [x] **OS-Level Scheduled Morning Priming Task Generator (`--schedule-install`)** ([#22](https://github.com/joseamair/agent-quota-tracker/issues/22)): Windows Task Scheduler, Linux crontab, and macOS launchd background task generator operating safely in user space.
 - [x] **Shell Prompt & Status Bar Integration (`--prompt`, `--prompt-format`)** ([#25](https://github.com/joseamair/agent-quota-tracker/issues/25)): Fast cached status segments for Starship, Oh-My-Posh, tmux, and PowerShell `$PROFILE`.
-- [x] **Additional AI Agent Trackers (General Availability - GA)** ([#21](https://github.com/joseamair/agent-quota-tracker/issues/21), [#53](https://github.com/joseamair/agent-quota-tracker/issues/53)): Graduated modular trackers for Cursor, Windsurf, GitHub Copilot CLI, and Aider/OpenRouter with universal environment variable fallbacks and auth health validation.
+- [x] **Additional AI Agent Trackers (Cursor, Windsurf, Copilot, Aider - Beta)** ([#21](https://github.com/joseamair/agent-quota-tracker/issues/21)): Modular trackers for Cursor, Windsurf, GitHub Copilot CLI, and Aider/OpenRouter.
 - [x] **Weekly Quota Exhaustion Guard & Sliding Window Ceiling Fix** ([#29](https://github.com/joseamair/agent-quota-tracker/issues/29)): Accurate 5h idle detection and safety guard skipping accounts with $\ge 100\%$ weekly usage unless `--force`.
 
 ### 🚀 Delivered in v1.1.0
@@ -713,7 +721,7 @@ Provider credentials and configurations are mapped automatically from your stand
 - [x] **AGY & Codex False-Positive Quota Fixes** ([#16](https://github.com/joseamair/agent-quota-tracker/issues/16)): Strict idle window verification for sliding prospective timestamps.
 - [x] **Official Claude CLI Support**: Native single-account discovery and fallback to official Anthropic `claude` CLI.
 
-### 🔭 Future Roadmap (v1.4.0 & Beyond)
+### 🔭 Future Roadmap (v1.5.0 & Beyond)
 - [ ] **Track Repository Visitor Traffic and Views using Free GitHub Native APIs & Actions** ([#36](https://github.com/joseamair/agent-quota-tracker/issues/36)): Scheduled GitHub Action querying Traffic API with cumulative timeseries storage and `agents traffic` CLI / Dashboard widget.
 - [ ] **Webhook Alerts (Discord / Slack / Telegram)**: Remote notifications for headless servers and homelabs on morning priming and weekly quota thresholds.
 

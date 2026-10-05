@@ -100,7 +100,7 @@ For software engineers working full workdays, **when** you start your 5-hour win
 
 ## 5. Roadmap Architecture: Autonomous Watchdog & Target-Time Scheduling
 
-To automate this strategy without manual terminal loops, the following features have been implemented and released in **v1.1.0**, **v1.2.0**, **v1.2.1**, and **v1.3.0**:
+To automate this strategy without manual terminal loops, the following features have been implemented and released in **v1.1.0**, **v1.2.0**, **v1.2.1**, **v1.3.0**, and **v1.4.0**:
 
 ### Feature 1: Automated Poke Watchdog Mode (`--poke-watch`) [DELIVERED - v1.1.0]
 - **Tracking Issue**: [#18](https://github.com/joseamair/agent-quota-tracker/issues/18)

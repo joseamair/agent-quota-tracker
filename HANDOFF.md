@@ -7,7 +7,7 @@ Welcome, incoming AI Coding Agent! This document gives you immediate, end-to-end
 ## 📌 Executive Summary
 
 - **Repository**: [`agent-quota-tracker`](https://github.com/joseamair/agent-quota-tracker)
-- **Current Version**: `v1.3.0` (Released 2026-10-05)
+- **Current Version**: `v1.4.0` (Released 2026-10-05)
 - **Repository Visibility**: Public GitHub Template repository
 - **Primary Goal**: High-performance local CLI monitor, autonomous watchdog daemon, and glassmorphism web dashboard tracking 5-hour rolling threshold windows and weekly quotas across AI coding agents (Claude via CCS & official CLI, OpenAI Codex, and Google Antigravity).
 
@@ -83,7 +83,7 @@ The project is structured with a **Tri-Engine Runtime**. Whenever adding new CLI
 Before pushing any commit or opening a PR, always execute the automated test suites:
 
 ```powershell
-# 1. Run Python unit tests (must pass 120/120)
+# 1. Run Python unit tests (must pass 155/155)
 uv run --no-sync pytest -v
 
 # 2. Syntax check standalone script
@@ -111,6 +111,8 @@ Write-Host "All PowerShell scripts validate cleanly!"
   - *Integration*: Future `agents traffic` CLI view and Web Dashboard visitor traffic widget.
 
 ### Recently Delivered
+- [**#55**](https://github.com/joseamair/agent-quota-tracker/issues/55) / [**#56**](https://github.com/joseamair/agent-quota-tracker/pull/56) - **Interactive Quick Filter & Search in Terminal TUI (`agents tui`)**: Added real-time interactive search prompt (`/` key) with live visual query indicator (`🔍 Filter: query█`), multi-field substring matching, semantic keyword shortcuts (`idle`, `active`, `expired`, `auth`), `Backspace` and `Esc` navigation, and filtered poke-all (`a`). Full Tri-Engine Parity across `src/agent_quota_tracker/tui.py`, `agents.py`, and test suite (`test_tui.py`).
+- [**#53**](https://github.com/joseamair/agent-quota-tracker/issues/53) / [**#54**](https://github.com/joseamair/agent-quota-tracker/pull/54) - **Community Agent Trackers General Availability (GA)**: Graduated Cursor, Windsurf, GitHub Copilot CLI, and Aider/OpenRouter from Beta to GA. Added universal environment variable fallbacks, token expiration inspection, and Proactive Auth Health Guard remediation hints. Full Tri-Engine Parity across `src/agent_quota_tracker/trackers/`, `agents.py`, and `agents_native.ps1`.
 - [**#50**](https://github.com/joseamair/agent-quota-tracker/issues/50) - **Interactive Full-Screen Terminal TUI (`agents tui`)**: Implemented full-screen keyboard-driven terminal dashboard operating in alternate screen buffer (`\033[?1049h`). Features row navigation (`↑`/`k`, `↓`/`j`), single poke (`p`), force poke (`f`), poke all (`a`), refresh (`r`), help modal (`?`), selected account inspector, colored progress bars, and clean exit. Full Tri-Engine Parity across `src/agent_quota_tracker/tui.py`, `agents.py`, and `agents_native.ps1 -Tui`.
 - [**#49**](https://github.com/joseamair/agent-quota-tracker/pull/49) / [**#48**](https://github.com/joseamair/agent-quota-tracker/issues/48) - **Prometheus Metrics Endpoint & Timeseries CSV Export**: Added standard Prometheus version 0.0.4 text format metrics exporter (`GET /metrics` and `agents --metrics`) exposing 7 key gauges with rich labels. Added RFC 4180 CSV export for historical snapshots and priming logs (`agents export --csv` and `GET /api/export`) with days/agent filtering and file destination options. Full Tri-Engine Parity across `src/agent_quota_tracker/metrics.py`, `history.py`, `agents.py`, and `agents_native.ps1`.
 - [**#47**](https://github.com/joseamair/agent-quota-tracker/pull/47) / [**#46**](https://github.com/joseamair/agent-quota-tracker/issues/46) - **Proactive Token Expiration & Auth Health Guard**: Local OAuth token inspection (`expiresAt` epoch ms), HTTP 401/403 detection, `⚠️ EXPIRED` / `⚠️ NO AUTH` visual badges, dedicated CLI & Dashboard `🔐 Authentication Health Alerts` remediation panel, and poke skip guards. Full Tri-Engine Parity.

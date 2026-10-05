@@ -82,7 +82,7 @@ class WindsurfTracker(BaseTracker):
         url = "https://api.codeium.com/register_user/"
         headers = {
             "Content-Type": "application/json",
-            "User-Agent": "agent-quota-tracker/1.3.0",
+            "User-Agent": "agent-quota-tracker/1.4.0",
         }
         payload = json.dumps({"api_key": api_key}).encode("utf-8")
         req = urllib.request.Request(url, data=payload, headers=headers, method="POST")

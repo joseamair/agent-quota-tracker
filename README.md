@@ -723,7 +723,12 @@ Provider credentials and configurations are mapped automatically from your stand
 
 ### 🔭 Future Roadmap (v1.5.0 & Beyond)
 - [ ] **Track Repository Visitor Traffic and Views using Free GitHub Native APIs & Actions** ([#36](https://github.com/joseamair/agent-quota-tracker/issues/36)): Scheduled GitHub Action querying Traffic API with cumulative timeseries storage and `agents traffic` CLI / Dashboard widget.
-- [ ] **Webhook Alerts (Discord / Slack / Telegram)**: Remote notifications for headless servers and homelabs on morning priming and weekly quota thresholds.
+- [ ] **Smart Agent Router & Optimal Account Recommender (`agents route` / `agents ask`)** ([#58](https://github.com/joseamair/agent-quota-tracker/issues/58)): Intelligent recommendations and least-utilized proxy querying to preserve deep focus quota across large fleets.
+- [ ] **Context Packager & Instant Agent Handoff (`agents handoff <target>`)** ([#59](https://github.com/joseamair/agent-quota-tracker/issues/59)): 1-click workspace context transfer to available agents with `--clip` direct clipboard export upon rate limits.
+- [ ] **Predictive Depletion Velocity & Pacing Forecaster (`agents forecast`)** ([#60](https://github.com/joseamair/agent-quota-tracker/issues/60)): Real-time burn-down velocity, estimated minute of depletion, and dashboard projection trendlines.
+- [ ] **Subscription Value Arbitrage & ROI Scorecard (`agents roi` / `agents report`)** ([#61](https://github.com/joseamair/agent-quota-tracker/issues/61)): Quantifies extracted token value against $20/mo flat-rate plans and provides daily workday productivity recaps.
+- [ ] **Quota-Aware Git Pre-Commit & Pre-Push Guard (`agents hook`)** ([#62](https://github.com/joseamair/agent-quota-tracker/issues/62)): Native zero-dependency git hooks checking <10ms local quota cache to prevent broken commits on exhausted AI accounts.
+- [ ] **Webhook Alerts (Discord / Slack / Telegram)**: Remote notifications for headless servers and homelabs on morning priming, weekly quota thresholds, and expired tokens.
 
 ---
 

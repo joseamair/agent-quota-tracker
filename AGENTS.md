@@ -225,6 +225,14 @@ To automate this strategy without manual terminal loops, the following features 
   - Zero-dependency non-blocking cross-platform input engine using `msvcrt` on Windows and `select`/`termios` on Linux/macOS.
   - Full Tri-Engine Parity across modular Python package (`src/agent_quota_tracker/tui.py`), standalone runner (`agents.py`), and native PowerShell (`agents_native.ps1 -Tui`).
 
+### Upcoming Features in Active Backlog (v1.5.0+)
+- **Feature 13: Free GitHub Native Visitor Traffic Tracker (`agents traffic`)** ([#36](https://github.com/joseamair/agent-quota-tracker/issues/36))
+- **Feature 14: Smart Agent Router & Optimal Account Recommender (`agents route` / `agents ask`)** ([#58](https://github.com/joseamair/agent-quota-tracker/issues/58))
+- **Feature 15: Context Packager & Instant Agent Handoff (`agents handoff`)** ([#59](https://github.com/joseamair/agent-quota-tracker/issues/59))
+- **Feature 16: Predictive Depletion Velocity & Pacing Forecaster (`agents forecast`)** ([#60](https://github.com/joseamair/agent-quota-tracker/issues/60))
+- **Feature 17: Subscription Value Arbitrage & Workday ROI Scorecard (`agents roi` / `agents report`)** ([#61](https://github.com/joseamair/agent-quota-tracker/issues/61))
+- **Feature 18: Quota-Aware Git Pre-Commit & Pre-Push Guard (`agents hook`)** ([#62](https://github.com/joseamair/agent-quota-tracker/issues/62))
+
 ---
 
 ## 6. Security & Isolation Principles

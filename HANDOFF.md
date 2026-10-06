@@ -105,10 +105,35 @@ Write-Host "All PowerShell scripts validate cleanly!"
 
 ## 📋 Active Roadmap Issues Ready for Implementation
 
-- [**#36**](https://github.com/joseamair/agent-quota-tracker/issues/36) - **Track Repository Visitor Traffic and Views using Free GitHub Native APIs & Actions**:
-  - *Status*: Architectural specification and API blueprint posted to issue. Ready for implementation in next sprint.
-  - *Mechanism*: Scheduled native GitHub Actions workflow (`cron: '0 0 * * *'`) querying 4 free endpoints (`/traffic/views`, `/traffic/clones`, `/traffic/popular/referrers`, `/traffic/popular/paths`) with `${{ secrets.GITHUB_TOKEN }}`. Solves GitHub's 14-day data retention limit by committing permanent historical timeseries into an isolated branch or directory without 3rd-party services.
-  - *Integration*: Future `agents traffic` CLI view and Web Dashboard visitor traffic widget.
+1. [**#36**](https://github.com/joseamair/agent-quota-tracker/issues/36) - **Track Repository Visitor Traffic and Views using Free GitHub Native APIs & Actions**:
+   - *Status*: Architectural specification and API blueprint posted. Ready for implementation.
+   - *Mechanism*: Scheduled native GitHub Actions workflow (`cron: '0 0 * * *'`) querying 4 free endpoints (`/traffic/views`, `/traffic/clones`, `/traffic/popular/referrers`, `/traffic/popular/paths`) with `${{ secrets.GITHUB_TOKEN }}`. Solves GitHub's 14-day data retention limit by committing permanent historical timeseries into an isolated branch or directory without 3rd-party services.
+   - *Integration*: Future `agents traffic` CLI view and Web Dashboard visitor traffic widget.
+
+2. [**#58**](https://github.com/joseamair/agent-quota-tracker/issues/58) - **Smart Agent Router and Optimal Account Recommender (`agents route` / `agents ask`)**:
+   - *Status*: Ready for implementation.
+   - *Mechanism*: Analyzes real-time fleet state from local cache (`cache.json`) to recommend the optimal account right now based on rolling window status, remaining percentage, and time until reset. Provides `agents ask "<prompt>"` proxy auto-routing lightweight queries to the least-utilized eligible agent to preserve deep focus quota.
+   - *Integration*: New `router.py` module, CLI commands `agents route` and `agents ask`.
+
+3. [**#59**](https://github.com/joseamair/agent-quota-tracker/issues/59) - **Context Packager and Instant Agent Handoff (`agents handoff <target>`)**:
+   - *Status*: Ready for implementation.
+   - *Mechanism*: Inspects local git workspace (branch, status, recent commits, diff summary) and generates a compact, high-density markdown transition prompt when an agent hits its 5h limit. Supports `--clip` to copy directly to clipboard via native OS commands.
+   - *Integration*: New `handoff.py` module, CLI command `agents handoff [agent]`, and Web Dashboard 1-click handoff button on cards $\ge 90\%$.
+
+4. [**#60**](https://github.com/joseamair/agent-quota-tracker/issues/60) - **Predictive Depletion Velocity and Pacing Forecaster (`agents forecast`)**:
+   - *Status*: Ready for implementation.
+   - *Mechanism*: Analyzes consumption velocity ($\Delta \% / \Delta t$) from SQLite `history.db` to project the exact minute of quota depletion. Emits pacing advice to avoid midday lockouts.
+   - *Integration*: New `forecast.py` module, CLI command `agents forecast`, and projected trendlines on Web Dashboard SVG burndown chart.
+
+5. [**#61**](https://github.com/joseamair/agent-quota-tracker/issues/61) - **Subscription Value Arbitrage and ROI Scorecard (`agents roi` / `agents report`)**:
+   - *Status*: Ready for implementation.
+   - *Mechanism*: Maps cumulative token utilization in `history.db` against commercial direct API pricing benchmarks (Claude Sonnet ~$9/M blended, Codex/GPT-4o ~$6.25/M blended) to calculate extracted value vs flat $20/mo subscription costs.
+   - *Integration*: New `roi.py` module, CLI commands `agents roi` and `agents report --today`, and Web Dashboard ROI card.
+
+6. [**#62**](https://github.com/joseamair/agent-quota-tracker/issues/62) - **Quota-Aware Git Pre-Commit & Pre-Push Guard (`agents hook`)**:
+   - *Status*: Ready for implementation.
+   - *Mechanism*: Installs native zero-dependency git hooks (`.git/hooks/pre-commit`, `pre-push`) reading local cache (`cache.json`) in <10ms to verify agent health before running AI linters/commit-generators, gracefully skipping or falling back if quota is exhausted.
+   - *Integration*: New `hooks.py` module, CLI commands `agents hook install/remove/status`.
 
 ### Recently Delivered
 - [**#55**](https://github.com/joseamair/agent-quota-tracker/issues/55) / [**#56**](https://github.com/joseamair/agent-quota-tracker/pull/56) - **Interactive Quick Filter & Search in Terminal TUI (`agents tui`)**: Added real-time interactive search prompt (`/` key) with live visual query indicator (`🔍 Filter: query█`), multi-field substring matching, semantic keyword shortcuts (`idle`, `active`, `expired`, `auth`), `Backspace` and `Esc` navigation, and filtered poke-all (`a`). Full Tri-Engine Parity across `src/agent_quota_tracker/tui.py`, `agents.py`, and test suite (`test_tui.py`).
